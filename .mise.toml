@@ -1,0 +1,36 @@
+[tools]
+rust = { version = "1.93", components = "rust-analyzer" }
+tombi = "0.7"
+prek = "0.3"
+biome = "2"
+
+[env]
+_.file = ".env"
+
+[tasks.dev]
+description = "Run development server"
+run = "cargo run"
+
+[tasks.fmt]
+description = "Format Rust, TOML, CSS, and JS files"
+run = "cargo fmt && tombi format *.toml && biome format --write src/static/"
+
+[tasks.check]
+description = "Quick compile check"
+run = "cargo check"
+
+[tasks.test]
+description = "Run tests"
+run = "cargo test"
+
+[tasks.release]
+description = "Build optimized release binary"
+run = "cargo build --release"
+
+[tasks.clippy]
+description = "Run Clippy lints"
+run = "cargo clippy -- -D warnings"
+
+[tasks.docker]
+description = "Build and run with Docker Compose"
+run = "docker compose up -d --build"

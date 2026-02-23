@@ -1,0 +1,56 @@
+[package]
+name = "tty1"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Fast, minimal dashboard aggregating trending content from Hacker News, GitHub, and Reddit"
+license = "MIT"
+
+[dependencies]
+arc-swap = "1"
+axum = "0.8"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1"
+futures = "0.3"
+maud = { version = "0.27", features = ["axum"] }
+# native-tls-vendored: Reddit fingerprints rustls and blocks it; vendored OpenSSL
+# statically links OpenSSL into the binary so distroless images need no system libssl.
+reqwest = { version = "0.12", default-features = false, features = [
+  "brotli",
+  "cookies",
+  "deflate",
+  "gzip",
+  "json",
+  "native-tls-vendored",
+  "socks"
+] }
+reqwest-middleware = "0.4"
+reqwest-retry = "0.7"
+reqwest-tracing = "0.5"
+scraper = { version = "0.25", default-features = false }
+# rc: /api/data returns Json<Arc<DataSnapshot>>, which requires Arc serialization support.
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = [
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "time"
+] }
+tower = { version = "0.5", features = ["timeout"] }
+tower-http = { version = "0.6", features = [
+  "compression-gzip",
+  "compression-zstd"
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zstd = { version = "0.13", default-features = false }
+
+[profile.release]
+opt-level = "z"
+strip = true
+lto = true
+codegen-units = 1

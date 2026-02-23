@@ -1,0 +1,8 @@
+services:
+  tty1:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped

@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        language: system
+        entry: mise x -- cargo fmt --check
+        files: '\.rs$'
+        pass_filenames: false
+      - id: tombi-fmt
+        name: tombi format
+        language: system
+        entry: mise x -- tombi format --check *.toml
+        pass_filenames: false
+      - id: biome-fmt
+        name: biome format
+        language: system
+        entry: mise x -- biome format src/static/
+        files: '\.(js|css|json)$'
+        pass_filenames: false
+      - id: cargo-check
+        name: cargo check
+        language: system
+        entry: mise x -- cargo check
+        pass_filenames: false

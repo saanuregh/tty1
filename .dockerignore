@@ -1,0 +1,12 @@
+target/
+.git/
+.gitignore
+.dockerignore
+.mise.toml
+.pre-commit-config.yaml
+.env
+.env.*
+.claude/
+*.md
+.idea/
+.vscode/
