@@ -97,6 +97,11 @@ All configuration lives in `src/config.rs` as compile-time constants. Key values
 | `REDDIT_POSTS_PER_SUB` | `30` | Posts fetched per subreddit |
 | `REDDIT_ALL_VIEW_LIMIT` | `100` | Max posts in merged "all" view |
 
+## Credits
+
+- [Simple Icons](https://simpleicons.org/) — Brand icons
+- [Lucide](https://lucide.dev/) — Favicon
+
 ## License
 
 [MIT](LICENSE)
