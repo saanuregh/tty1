@@ -105,7 +105,7 @@ async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if snapshot.is_loading {
         builder = builder.header(REFRESH, &*max_age);
     }
-    builder.body(Body::from(body)).unwrap()
+    builder.body(Body::from(body)).expect("valid response")
 }
 
 async fn settings() -> Response {
@@ -114,7 +114,7 @@ async fn settings() -> Response {
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
         .header(CACHE_CONTROL, "no-cache")
         .body(Body::from(html))
-        .unwrap()
+        .expect("valid response")
 }
 
 // ── API ─────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ async fn api_data(State(state): State<AppState>, headers: HeaderMap) -> Response
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::empty())
-                .unwrap();
+                .expect("valid response");
         }
     };
 
@@ -142,7 +142,7 @@ async fn api_data(State(state): State<AppState>, headers: HeaderMap) -> Response
         .header(CACHE_CONTROL, "public, max-age=60")
         .header(ETAG, &*snapshot.etag)
         .body(Body::from(body))
-        .unwrap()
+        .expect("valid response")
 }
 
 async fn api_health(State(state): State<AppState>) -> (StatusCode, &'static str) {
@@ -159,7 +159,7 @@ async fn favicon() -> Response {
     static_response(
         include_str!("static/icons/favicon.svg"),
         "image/svg+xml",
-        "public, max-age=86400",
+        "public, max-age=31536000, immutable",
     )
 }
 
@@ -167,7 +167,7 @@ async fn app_icon() -> Response {
     static_response(
         include_str!("static/icons/app-icon.svg"),
         "image/svg+xml",
-        "public, max-age=86400",
+        "public, max-age=31536000, immutable",
     )
 }
 
@@ -175,7 +175,7 @@ async fn manifest() -> Response {
     static_response(
         include_str!("static/manifest.json"),
         "application/manifest+json",
-        "public, max-age=86400",
+        "public, max-age=31536000, immutable",
     )
 }
 
@@ -196,7 +196,7 @@ fn static_response(
         .header(CONTENT_TYPE, content_type)
         .header(CACHE_CONTROL, cache_control)
         .body(Body::from(body))
-        .unwrap()
+        .expect("valid response")
 }
 
 // ── Response helpers ────────────────────────────────────────────────
@@ -215,7 +215,7 @@ fn not_modified(headers: &HeaderMap, etag: &str, cache_control: &str) -> Option<
             .header(ETAG, etag)
             .header(CACHE_CONTROL, cache_control)
             .body(Body::empty())
-            .unwrap(),
+            .expect("valid response"),
     )
 }
 

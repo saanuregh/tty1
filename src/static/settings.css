@@ -249,3 +249,15 @@
 .keybind-desc {
 	color: var(--text-meta);
 }
+
+@media (prefers-reduced-motion: reduce) {
+	.theme-btn,
+	.hn-btn,
+	.period-btn,
+	.panel-toggle,
+	.reset-btn,
+	.share-btn,
+	.checkbox-item {
+		transition: none !important;
+	}
+}

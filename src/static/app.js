@@ -375,6 +375,12 @@
 		applyProfile();
 		applyFilters();
 		refreshTimes();
+		const ft = $(".last-updated-time");
+		if (ft) {
+			ft.classList.remove("refreshed");
+			void ft.offsetWidth;
+			ft.classList.add("refreshed");
+		}
 		if (mobileQuery.matches) {
 			teardownSwipe();
 			initSwipe();

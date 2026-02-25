@@ -115,3 +115,10 @@ body.is-offline {
 body.is-offline .dashboard {
 	padding-top: 40px;
 }
+
+@media (prefers-reduced-motion: reduce) {
+	.offline-banner,
+	body.is-offline {
+		transition: none;
+	}
+}

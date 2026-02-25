@@ -54,8 +54,12 @@ impl HtmlSnapshot {
 
     fn compress(html: String, refresh_secs: u64, is_loading: bool) -> Option<Self> {
         let etag = compute_etag(html.as_bytes());
-        let gzip = compress_gzip(html.as_bytes()).ok()?;
-        let zstd = compress_zstd(html.as_bytes()).ok()?;
+        let gzip = compress_gzip(html.as_bytes())
+            .map_err(|e| tracing::error!(error = %e, "gzip compression failed"))
+            .ok()?;
+        let zstd = compress_zstd(html.as_bytes())
+            .map_err(|e| tracing::error!(error = %e, "zstd compression failed"))
+            .ok()?;
         Some(Self {
             html: Bytes::from(html),
             gzip: Bytes::from(gzip),

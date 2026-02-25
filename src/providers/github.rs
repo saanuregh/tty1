@@ -115,6 +115,16 @@ fn text(el: scraper::ElementRef) -> String {
     el.text().collect::<String>().trim().to_string()
 }
 
+fn parse_num(s: &str) -> u64 {
+    s.bytes().fold(0u64, |acc, b| {
+        if b.is_ascii_digit() {
+            acc * 10 + (b - b'0') as u64
+        } else {
+            acc
+        }
+    })
+}
+
 fn parse_trending_html(html: &str) -> Vec<TrendingRepo> {
     let Some(sel) = SELECTORS.as_ref() else {
         tracing::error!("CSS selectors failed to parse");
@@ -159,20 +169,8 @@ fn parse_trending_html(html: &str) -> Vec<TrendingRepo> {
             .map(String::from);
 
         let mut links = article.select(&sel.link);
-        let stars = links
-            .next()
-            .map(text)
-            .unwrap_or_default()
-            .replace(",", "")
-            .parse()
-            .unwrap_or(0);
-        let forks = links
-            .next()
-            .map(text)
-            .unwrap_or_default()
-            .replace(",", "")
-            .parse()
-            .unwrap_or(0);
+        let stars = links.next().map(text).map_or(0, |s| parse_num(&s));
+        let forks = links.next().map(text).map_or(0, |s| parse_num(&s));
         let period_stars = article
             .select(&sel.period)
             .next()

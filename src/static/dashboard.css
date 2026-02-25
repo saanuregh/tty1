@@ -636,29 +636,42 @@
 }
 
 .swipe-dot {
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	border: none;
+	background: transparent;
+	padding: 0;
+	cursor: pointer;
+	position: relative;
+}
+
+.swipe-dot::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	border: none;
 	background: var(--border-input);
-	padding: 0;
-	cursor: pointer;
 	transition:
 		background-color 0.2s ease,
 		transform 0.2s ease;
 }
 
-.swipe-dot.active {
-	transform: scale(1.25);
+.swipe-dot.active::after {
+	transform: translate(-50%, -50%) scale(1.25);
 }
 
-.swipe-dot.active.dot-hn {
+.swipe-dot.active.dot-hn::after {
 	background: var(--accent-hn);
 }
-.swipe-dot.active.dot-gh {
+.swipe-dot.active.dot-gh::after {
 	background: var(--accent-gh);
 }
-.swipe-dot.active.dot-reddit {
+.swipe-dot.active.dot-reddit::after {
 	background: var(--accent-reddit);
 }
 
@@ -703,5 +716,44 @@
 		display: inline-flex;
 		align-items: center;
 		padding: 4px 14px;
+	}
+}
+
+/* Refresh animation */
+
+@keyframes refresh-pulse {
+	0% {
+		opacity: 1;
+	}
+	30% {
+		opacity: 0.3;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+.last-updated-time.refreshed {
+	animation: refresh-pulse 0.6s ease-out;
+}
+
+/* Reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+	.panel-header select,
+	.tab-labels label,
+	.story,
+	.repo,
+	.reddit-post,
+	.story-title a,
+	.repo-title a,
+	.reddit-post-title a,
+	.tab-content.active,
+	.swipe-dot::after {
+		transition: none !important;
+	}
+	.loading-spinner,
+	.last-updated-time.refreshed {
+		animation: none;
 	}
 }
