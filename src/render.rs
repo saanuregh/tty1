@@ -37,7 +37,7 @@ fn page_shell(content: Markup) -> Markup {
                 link rel="icon" type="image/svg+xml" href="/favicon.svg";
                 link rel="apple-touch-icon" href="/icon.svg";
                 link rel="manifest" href="/manifest.json";
-                script { (PreEscaped("document.documentElement.className='js'")) }
+                script { (PreEscaped("document.documentElement.className='js';try{var t=JSON.parse(localStorage.getItem('tty1')||'{}').theme||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');document.documentElement.dataset.theme=t}catch(e){}")) }
                 style { (PreEscaped(include_str!("static/style.css"))) }
             }
             body {
@@ -130,6 +130,8 @@ pub fn render_page(
         footer.last-updated aria-live="polite" {
             "updated "
             time.last-updated-time data-ts=(last_fetched.timestamp()) { (format_time_ago(last_fetched.timestamp() as u64)) }
+            span.sep { (SEP) }
+            button.theme-toggle type="button" aria-label="Toggle theme" { "\u{25d0}" }
         }
         script { (PreEscaped(include_str!("static/state.js"))) }
     }).into_string()
@@ -140,7 +142,7 @@ fn render_story(story: &HnStory) -> Markup {
 
     html! {
         span.story-title {
-            a href=(link_url) target="_blank" rel="noopener" {
+            a href=(link_url) {
                 (story.title)
             }
             @if let Some(ref domain) = story.domain {
@@ -155,7 +157,7 @@ fn render_story(story: &HnStory) -> Markup {
             span.sep { (SEP) }
             time.time-ago data-ts=(story.created_at) { (format_time_ago(story.created_at)) }
             span.sep { (SEP) }
-            a href=(story.hn_url) target="_blank" rel="noopener" {
+            a href=(story.hn_url) {
                 (story.comment_count) " comments"
             }
         }
@@ -165,7 +167,7 @@ fn render_story(story: &HnStory) -> Markup {
 fn render_repo(repo: &TrendingRepo) -> Markup {
     html! {
         span.repo-title {
-            a href=(repo.url) target="_blank" rel="noopener" {
+            a href=(repo.url) {
                 span.repo-author { (&repo.author) "/" }
                 (&repo.name)
             }
@@ -237,7 +239,7 @@ fn render_reddit_feed(feed: &RedditFeed) -> Markup {
 fn render_reddit_post(post: &RedditPost) -> Markup {
     html! {
         span.reddit-post-title {
-            a href=(post.url) target="_blank" rel="noopener" {
+            a href=(post.url) {
                 (post.title)
             }
             span.reddit-sub { "r/" (post.subreddit) }
@@ -250,7 +252,7 @@ fn render_reddit_post(post: &RedditPost) -> Markup {
             span.sep { (SEP) }
             time.time-ago data-ts=(post.created_at as u64) { (format_time_ago(post.created_at as u64)) }
             span.sep { (SEP) }
-            a href=(post.permalink) target="_blank" rel="noopener" {
+            a href=(post.permalink) {
                 (post.comment_count) " comments"
             }
             @if !post.is_self {

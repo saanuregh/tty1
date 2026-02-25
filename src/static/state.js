@@ -112,22 +112,140 @@
 	}
 	setInterval(refreshTimes, 60000);
 
-	// Keyboard shortcuts: 1/2/3 focus panels
-	document.addEventListener("keydown", function (e) {
-		if (
-			e.target.tagName === "SELECT" ||
-			e.target.tagName === "INPUT" ||
-			e.target.tagName === "TEXTAREA"
-		)
-			return;
+	// j/k navigation state
+	var activePanel = 0;
+	var focusedIdx = -1;
+
+	function getVisibleItems(panelIdx) {
 		var panels = document.querySelectorAll(".panel");
-		var target;
-		if (e.key === "1") target = panels[0];
-		else if (e.key === "2") target = panels[1];
-		else if (e.key === "3") target = panels[2];
-		if (target) {
-			var el = target.querySelector("a, select, input");
-			if (el) el.focus();
+		var panel = panels[panelIdx];
+		if (!panel) return [];
+		var lists = panel.querySelectorAll("ol");
+		for (var i = 0; i < lists.length; i++) {
+			if (lists[i].style.display !== "none") {
+				return lists[i].querySelectorAll("li");
+			}
+		}
+		return [];
+	}
+
+	function clearFocus() {
+		var el = document.querySelector(".focused");
+		if (el) el.classList.remove("focused");
+	}
+
+	function setFocus(idx) {
+		clearFocus();
+		var items = getVisibleItems(activePanel);
+		if (idx < 0 || idx >= items.length) return;
+		focusedIdx = idx;
+		items[idx].classList.add("focused");
+		items[idx].scrollIntoView({ block: "nearest" });
+	}
+
+	function openFocusedLink(newTab) {
+		var items = getVisibleItems(activePanel);
+		if (focusedIdx < 0 || focusedIdx >= items.length) return;
+		var a = items[focusedIdx].querySelector("a");
+		if (!a) return;
+		if (newTab) window.open(a.href, "_blank");
+		else window.location.href = a.href;
+	}
+
+	// Theme toggle
+	function getTheme() {
+		return document.documentElement.dataset.theme || "dark";
+	}
+
+	function setTheme(theme) {
+		document.documentElement.dataset.theme = theme;
+		var d = load();
+		d.theme = theme;
+		save(d);
+	}
+
+	var themeBtn = document.querySelector(".theme-toggle");
+	if (themeBtn)
+		themeBtn.addEventListener("click", function () {
+			setTheme(getTheme() === "dark" ? "light" : "dark");
+		});
+
+	// Reset focus on filter change
+	document.addEventListener("change", function () {
+		clearFocus();
+		focusedIdx = -1;
+	});
+
+	document.addEventListener("keydown", function (e) {
+		if (e.key === "Escape" && document.activeElement) {
+			document.activeElement.blur();
+			return;
+		}
+		if (e.target.tagName === "SELECT") {
+			if (e.key === "j" || e.key === "k") {
+				e.preventDefault();
+				var sel = e.target;
+				var i = sel.selectedIndex + (e.key === "j" ? 1 : -1);
+				if (i >= 0 && i < sel.options.length) {
+					sel.selectedIndex = i;
+					sel.dispatchEvent(new Event("change", { bubbles: true }));
+				}
+				return;
+			}
+			if (e.key === "h" || e.key === "l") {
+				e.target.blur();
+			} else {
+				return;
+			}
+		}
+		if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+		// Panel switching: h/l
+		if (e.key === "h" || e.key === "l") {
+			e.preventDefault();
+			var panels = document.querySelectorAll(".panel");
+			if (e.key === "h")
+				activePanel = (activePanel - 1 + panels.length) % panels.length;
+			else activePanel = (activePanel + 1) % panels.length;
+			clearFocus();
+			focusedIdx = -1;
+			panels.forEach(function (p, i) {
+				p.classList.toggle("active-panel", i === activePanel);
+			});
+			return;
+		}
+
+		// f: focus filters in active panel (cycles on repeat)
+		if (e.key === "f") {
+			e.preventDefault();
+			var panels = document.querySelectorAll(".panel");
+			var panel = panels[activePanel];
+			if (!panel) return;
+			var controls = panel.querySelectorAll("select, .tab-labels label");
+			if (controls.length === 0) return;
+			var current = Array.prototype.indexOf.call(
+				controls,
+				document.activeElement,
+			);
+			var next = (current + 1) % controls.length;
+			controls[next].focus();
+			return;
+		}
+
+		// j/k navigation
+		if (e.key === "j") {
+			e.preventDefault();
+			var items = getVisibleItems(activePanel);
+			if (items.length > 0)
+				setFocus(Math.min(focusedIdx + 1, items.length - 1));
+		} else if (e.key === "k") {
+			e.preventDefault();
+			if (focusedIdx > 0) setFocus(focusedIdx - 1);
+		} else if (e.key === "Enter" && focusedIdx >= 0) {
+			e.preventDefault();
+			openFocusedLink(e.shiftKey);
+		} else if (e.key === "t") {
+			setTheme(getTheme() === "dark" ? "light" : "dark");
 		}
 	});
 
