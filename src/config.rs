@@ -12,6 +12,7 @@ pub const FILTER_ALL: &str = "all";
 
 // -- Server --
 pub const SCRAPE_INTERVAL_SECS: u64 = 1800;
+pub const SCRAPE_JITTER_SECS: u64 = 300;
 pub const HTML_REFRESH_SECS: u64 = 60;
 pub const LOADING_PAGE_TTL_SECS: u64 = 3;
 pub const HANDLER_TIMEOUT_SECS: u64 = 10;

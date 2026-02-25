@@ -3,9 +3,9 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
-use crate::client::Client;
-
 use crate::cache::{DataSnapshot, HtmlSnapshot, SharedData, SharedHtml};
+use crate::client::Client;
+use crate::config;
 use crate::providers::{github, hackernews, reddit};
 
 /// Each provider fails independently — a single provider outage never blocks the others.
@@ -26,7 +26,10 @@ pub async fn run_scraper(
             "data cache updated"
         );
         rebuild_html(&data, &html).await;
-        tokio::time::sleep(interval).await;
+        let jitter = Duration::from_secs(fastrand::u64(0..=config::SCRAPE_JITTER_SECS * 2));
+        let sleep_dur = interval - Duration::from_secs(config::SCRAPE_JITTER_SECS) + jitter;
+        tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next scrape");
+        tokio::time::sleep(sleep_dur).await;
     }
 }
 

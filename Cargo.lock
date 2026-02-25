@@ -2094,6 +2094,7 @@ dependencies = [
  "axum",
  "bytes",
  "chrono",
+ "fastrand",
  "flate2",
  "futures",
  "maud",
