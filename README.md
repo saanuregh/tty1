@@ -1,6 +1,8 @@
 # tty1
 
-A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework.
+A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~200 lines), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
+
+![screenshot](.github/screenshot.png)
 
 ## Features
 
