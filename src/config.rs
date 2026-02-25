@@ -90,6 +90,9 @@ pub const REDDIT_SUBREDDITS: &[&str] = &[
     "dotnet",
     "OpenAI",
     "artificial",
+    "aws",
+    "docker",
+    "netsec",
 ];
 pub const REDDIT_CONCURRENT_FETCHES: usize = 3;
 pub const REDDIT_POSTS_PER_SUB: usize = 30;

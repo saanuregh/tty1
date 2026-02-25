@@ -11,6 +11,10 @@ _.file = ".env"
 description = "Run development server"
 run = "cargo run"
 
+[tasks.dev-release]
+description = "Run optimized release binary"
+run = "cargo run --release"
+
 [tasks.fmt]
 description = "Format Rust, TOML, CSS, and JS files"
 run = "cargo fmt && tombi format *.toml && biome format --write src/static/"
@@ -19,13 +23,25 @@ run = "cargo fmt && tombi format *.toml && biome format --write src/static/"
 description = "Quick compile check"
 run = "cargo check"
 
+[tasks.clippy]
+description = "Run Clippy lints"
+run = "cargo clippy -- -D warnings"
+
 [tasks.test]
 description = "Run tests"
 run = "cargo test"
 
+[tasks.build]
+description = "Build debug binary"
+run = "cargo build"
+
 [tasks.build-release]
 description = "Build optimized release binary"
 run = "cargo build --release"
+
+[tasks.docker]
+description = "Build and run with Docker Compose"
+run = "docker compose up -d --build"
 
 [tasks.release]
 description = "Tag and create GitHub release from Cargo.toml version"
@@ -43,11 +59,3 @@ git push --tags
 gh release create "$tag" --title "$tag" --generate-notes
 echo "Released $tag"
 """
-
-[tasks.clippy]
-description = "Run Clippy lints"
-run = "cargo clippy -- -D warnings"
-
-[tasks.docker]
-description = "Build and run with Docker Compose"
-run = "docker compose up -d --build"

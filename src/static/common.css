@@ -1,0 +1,117 @@
+*,
+*::before,
+*::after {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+:root {
+	--bg-body: #0a0a0a;
+	--bg-panel: #111;
+	--bg-hover: #161616;
+	--border-panel: #1a1a1a;
+	--border-item: #141414;
+	--border-input: #2a2a2a;
+	--text-primary: #e0e0e0;
+	--text-heading: #d4d4d4;
+	--text-secondary: #999;
+	--text-meta: #8a8a8a;
+	--text-muted: #888;
+	--text-counter: #707070;
+	--text-visited: #888;
+	--text-domain: #707070;
+	--sep-color: #555;
+	--loading-sep: #222;
+	--accent-hn: #ff6600;
+	--accent-gh: #58a6ff;
+	--accent-reddit: #ff4500;
+	--scrollbar-thumb: #2a2a2a;
+	--scrollbar-hover: #3a3a3a;
+	--font-mono:
+		"JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", "Consolas",
+		monospace;
+}
+
+html[data-theme="light"] {
+	--bg-body: #f5f5f5;
+	--bg-panel: #fff;
+	--bg-hover: #f0f0f0;
+	--border-panel: #e0e0e0;
+	--border-item: #eee;
+	--border-input: #ccc;
+	--text-primary: #1a1a1a;
+	--text-heading: #111;
+	--text-secondary: #555;
+	--text-meta: #666;
+	--text-muted: #777;
+	--text-counter: #999;
+	--text-visited: #888;
+	--text-domain: #888;
+	--sep-color: #bbb;
+	--loading-sep: #ddd;
+	--scrollbar-thumb: #ccc;
+	--scrollbar-hover: #bbb;
+}
+
+body {
+	background: var(--bg-body);
+	color: var(--text-primary);
+	font-family: var(--font-mono);
+	font-size: 14px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+	height: 100vh;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.skip-link {
+	position: absolute;
+	left: -9999px;
+	top: 0;
+	z-index: 200;
+	background: var(--bg-panel);
+	color: var(--text-primary);
+	padding: 8px 16px;
+	font-size: 13px;
+	text-decoration: none;
+	border: 1px solid var(--border-input);
+	border-radius: 4px;
+}
+
+.skip-link:focus {
+	left: 16px;
+	top: 8px;
+}
+
+.offline-banner {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 100;
+	background: var(--border-panel);
+	color: var(--text-meta);
+	text-align: center;
+	font-size: 11px;
+	padding: 4px 0;
+	letter-spacing: 0.05em;
+	border-bottom: 1px solid var(--border-input);
+	transform: translateY(-100%);
+	transition: transform 0.3s ease;
+}
+
+.offline-banner:not(.is-hidden) {
+	transform: translateY(0);
+}
+
+body.is-offline {
+	opacity: 0.85;
+	transition: opacity 0.3s ease;
+}
+
+body.is-offline .dashboard {
+	padding-top: 40px;
+}

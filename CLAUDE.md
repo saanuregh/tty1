@@ -41,8 +41,10 @@ src/
   static/
     icons/         # SVG icons (app, favicon, provider logos) inlined into HTML
     manifest.json  # PWA web app manifest
-    style.css      # all styles (dark theme, monospace)
-    state.js       # client-side filtering, localStorage, keyboard shortcuts, swipe nav
+    common.css     # shared styles (reset, variables, themes, base, offline)
+    dashboard.css  # main page styles (panels, items, loading, mobile)
+    settings.css   # settings page styles
+    app.js         # client-side filtering, localStorage, keyboard shortcuts, swipe nav
     sw.js          # service worker (stale-while-revalidate, offline fallback)
 ```
 
@@ -61,7 +63,7 @@ src/
 - Config is compile-time constants in `config.rs` — only PORT and proxy are read from env
 - HTML is built with Maud macros (compile-time checked), not string templates
 - Frontend is vanilla JS (200 lines) — no build step, no framework
-- CSS is a single file inlined into the HTML response
+- CSS is split by concern (common/dashboard/settings) and inlined into each page's HTML response
 - Provider tests make live HTTP requests (not mocked)
 - Security headers (X-Frame-Options, CSP, etc.) are applied via middleware in `routes.rs`
 
