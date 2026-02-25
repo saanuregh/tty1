@@ -339,7 +339,7 @@ body {
 }
 
 .story-title a:hover {
-	color: #fff;
+	color: var(--accent-hn);
 	text-decoration: underline;
 }
 
@@ -685,6 +685,138 @@ body {
 
 .theme-toggle:hover {
 	color: var(--text-primary);
+}
+
+.settings-link {
+	color: var(--text-meta);
+	font-size: 11px;
+	text-decoration: none;
+	pointer-events: auto;
+}
+
+.settings-link:hover {
+	color: var(--text-primary);
+}
+
+/* Settings page */
+.settings {
+	max-width: 600px;
+	margin: 0 auto;
+	padding: 24px;
+}
+
+.settings-header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 32px;
+}
+
+.settings-header a {
+	color: var(--text-meta);
+	text-decoration: none;
+	font-size: 13px;
+}
+
+.settings-header a:hover {
+	color: var(--text-primary);
+}
+
+.settings-header h1 {
+	font-size: 16px;
+	font-weight: 600;
+	color: var(--text-heading);
+}
+
+.settings-section {
+	margin-bottom: 24px;
+}
+
+.settings-label {
+	font-size: 12px;
+	color: var(--text-meta);
+	letter-spacing: 0.05em;
+	margin-bottom: 8px;
+}
+
+.theme-btn {
+	background: var(--bg-body);
+	color: var(--text-meta);
+	border: 1px solid var(--border-input);
+	border-radius: 4px;
+	padding: 6px 16px;
+	font-family: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	margin-right: 4px;
+	transition:
+		border-color 0.15s,
+		color 0.15s;
+}
+
+.theme-btn:hover {
+	border-color: var(--text-muted);
+	color: var(--text-primary);
+}
+
+.theme-btn.active {
+	border-color: var(--text-secondary);
+	color: var(--text-primary);
+}
+
+.keybind-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.keybind-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+}
+
+.keybind-key {
+	display: inline-block;
+	background: var(--bg-body);
+	border: 1px solid var(--border-input);
+	border-radius: 3px;
+	padding: 2px 6px;
+	font-family: inherit;
+	font-size: 11px;
+	color: var(--text-heading);
+	min-width: 24px;
+	text-align: center;
+}
+
+.keybind-desc {
+	color: var(--text-meta);
+}
+
+.reset-btn {
+	background: none;
+	color: var(--text-meta);
+	border: 1px solid var(--border-input);
+	border-radius: 4px;
+	padding: 6px 16px;
+	font-family: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	transition:
+		border-color 0.15s,
+		color 0.15s;
+}
+
+.reset-btn:hover {
+	border-color: var(--text-muted);
+	color: var(--text-primary);
+}
+
+.settings-muted {
+	font-size: 11px;
+	color: var(--text-counter);
+	margin-top: 6px;
 }
 
 /* Offline indicator */

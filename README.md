@@ -101,6 +101,7 @@ All configuration lives in `src/config.rs` as compile-time constants. Key values
 
 ## Credits
 
+- Inspired by [hackertab.dev](https://github.com/medyo/hackertab.dev)
 - [Simple Icons](https://simpleicons.org/) — Brand icons
 - [Lucide](https://lucide.dev/) — Favicon
 

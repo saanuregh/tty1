@@ -132,6 +132,8 @@ pub fn render_page(
             time.last-updated-time data-ts=(last_fetched.timestamp()) { (format_time_ago(last_fetched.timestamp() as u64)) }
             span.sep { (SEP) }
             button.theme-toggle type="button" aria-label="Toggle theme" { "\u{25d0}" }
+            span.sep { (SEP) }
+            a.settings-link href="/settings" { "settings" }
         }
         script { (PreEscaped(include_str!("static/state.js"))) }
     }).into_string()
@@ -285,6 +287,68 @@ pub fn render_loading_page() -> String {
                 }
             }
         }
+    })
+    .into_string()
+}
+
+pub fn render_settings_page() -> String {
+    page_shell(html! {
+        main #main-content .settings {
+            header.settings-header {
+                a href="/" { "← tty1" }
+                h1 { "settings" }
+            }
+
+            section.settings-section {
+                span.settings-label { "theme" }
+                div.theme-buttons {
+                    button.theme-btn data-theme="dark" { "dark" }
+                    button.theme-btn data-theme="light" { "light" }
+                }
+            }
+
+            section.settings-section {
+                span.settings-label { "keyboard shortcuts" }
+                div.keybind-list {
+                    div.keybind-row {
+                        span.keybind-key { "h" }
+                        span.keybind-key { "l" }
+                        span.keybind-desc { "switch panels" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "j" }
+                        span.keybind-key { "k" }
+                        span.keybind-desc { "navigate items" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "f" }
+                        span.keybind-desc { "focus filter" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "Enter" }
+                        span.keybind-desc { "open link" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "Shift+Enter" }
+                        span.keybind-desc { "open in new tab" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "t" }
+                        span.keybind-desc { "toggle theme" }
+                    }
+                    div.keybind-row {
+                        span.keybind-key { "Escape" }
+                        span.keybind-desc { "unfocus" }
+                    }
+                }
+            }
+
+            section.settings-section {
+                button.reset-btn { "reset to defaults" }
+                small.muted { "clears all saved preferences" }
+            }
+        }
+        script { (PreEscaped(include_str!("static/settings.js"))) }
     })
     .into_string()
 }

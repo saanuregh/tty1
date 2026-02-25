@@ -24,6 +24,7 @@ use crate::config;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/settings", get(settings))
         .route("/api/data", get(api_data))
         .route("/api/health", get(api_health))
         .route("/favicon.svg", get(favicon))
@@ -105,6 +106,15 @@ async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
         builder = builder.header(REFRESH, &*max_age);
     }
     builder.body(Body::from(body)).unwrap()
+}
+
+async fn settings() -> Response {
+    let html = crate::render::render_settings_page();
+    Response::builder()
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(CACHE_CONTROL, "no-cache")
+        .body(Body::from(html))
+        .unwrap()
 }
 
 // ── API ─────────────────────────────────────────────────────────────
