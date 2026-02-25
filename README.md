@@ -1,6 +1,6 @@
 # tty1
 
-A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~200 lines), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
+A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~750 lines, no framework), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
 
 ![screenshot](.github/screenshot.png)
 
@@ -8,9 +8,10 @@ A fast, minimal dashboard that aggregates trending content from Hacker News, Git
 
 - **Hacker News** — Top, Newest, and Show HN stories (30 per page)
 - **GitHub Trending** — Repos across 17 languages, filterable by daily/weekly/monthly
-- **Reddit** — 34 curated subreddits focused on programming and tech
+- **Reddit** — 37 curated subreddits focused on programming and tech
 - **PWA** — Installable with offline support via service worker
-- **Keyboard shortcuts** — `1`/`2`/`3` to switch panels, arrows to navigate
+- **Keyboard shortcuts** — vim-style navigation (`h/l` panels, `j/k` items, `f` filters, `Enter`/`c` open)
+- **Settings** — theme, panel order, default filters, persisted in localStorage, shareable via URL
 - **Mobile** — Responsive layout with swipe navigation
 - **Fast** — Pre-rendered HTML, gzip/zstd compression, ETag caching, lock-free reads
 
@@ -65,6 +66,7 @@ All optional — the app runs with sensible defaults:
 | Endpoint | Description |
 |---|---|
 | `GET /` | Dashboard HTML (pre-compressed, ETag support) |
+| `GET /settings` | Settings page (theme, panel order, filters) |
 | `GET /api/data` | All aggregated data as JSON |
 | `GET /api/health` | `200` if data is loaded, `503` while still fetching |
 
@@ -77,6 +79,7 @@ Each provider fetches concurrently using buffered streams (HN: 10, GitHub: 6, Re
 ```
 Axum server (:3000)
   ├── GET /           → pre-compressed HTML from ArcSwap
+  ├── GET /settings   → settings page (rendered on request)
   ├── GET /api/data   → JSON snapshot of current data
   └── GET /api/health → 200/503 based on data availability
 
