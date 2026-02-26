@@ -11,6 +11,8 @@
 }
 
 .settings-aside {
+	display: flex;
+	flex-direction: column;
 	border-top: 1px solid var(--border-panel);
 	padding-top: 24px;
 }
@@ -98,6 +100,16 @@
 .panel-toggle.active {
 	border-color: var(--text-secondary);
 	color: var(--text-primary);
+}
+
+.theme-btn:focus-visible,
+.hn-btn:focus-visible,
+.period-btn:focus-visible,
+.panel-toggle:focus-visible,
+.reset-btn:focus-visible,
+.share-btn:focus-visible {
+	outline: 1px solid var(--text-secondary);
+	outline-offset: 1px;
 }
 
 .theme-buttons {
@@ -248,6 +260,39 @@
 
 .keybind-desc {
 	color: var(--text-meta);
+}
+
+/* Footer */
+.settings-footer {
+	margin-top: auto;
+	padding-top: 24px;
+	border-top: 1px solid var(--border-panel);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+	color: var(--text-counter);
+}
+.github-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	color: var(--text-counter);
+	text-decoration: none;
+}
+.github-link:hover {
+	color: var(--text-meta);
+}
+.github-link svg {
+	width: 11px;
+	height: 11px;
+	fill: currentColor;
+}
+
+/* No-JS fallback — hiding style is inline in <noscript> */
+.noscript-msg {
+	color: var(--text-meta);
+	font-size: 13px;
 }
 
 @media (prefers-reduced-motion: reduce) {

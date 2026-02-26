@@ -18,9 +18,9 @@
 	--text-secondary: #999;
 	--text-meta: #8a8a8a;
 	--text-muted: #888;
-	--text-counter: #707070;
+	--text-counter: #888;
 	--text-visited: #888;
-	--text-domain: #707070;
+	--text-domain: #888;
 	--sep-color: #555;
 	--loading-sep: #222;
 	--accent-hn: #ff6600;
@@ -45,7 +45,7 @@ html[data-theme="light"] {
 	--text-secondary: #555;
 	--text-meta: #666;
 	--text-muted: #777;
-	--text-counter: #999;
+	--text-counter: #777;
 	--text-visited: #888;
 	--text-domain: #888;
 	--sep-color: #bbb;

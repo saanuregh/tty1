@@ -3,6 +3,12 @@ rust = { version = "1.93", components = "rust-analyzer" }
 tombi = "0.7"
 prek = "0.3"
 biome = "2"
+cargo-binstall = "1"
+"cargo:cargo-edit" = "0.13"
+"cargo:cargo-machete" = "0.9"
+
+[settings]
+experimental = true
 
 [env]
 _.file = ".env"
@@ -16,16 +22,27 @@ description = "Run optimized release binary"
 run = "cargo run --release"
 
 [tasks.fmt]
-description = "Format Rust, TOML, CSS, and JS files"
-run = "cargo fmt && tombi format *.toml && biome format --write src/static/"
+description = "Format all files"
+run = [
+  "cargo fmt",
+  "tombi format *.toml",
+  "biome format --write",
+]
 
-[tasks.check]
-description = "Quick compile check"
-run = "cargo check"
+[tasks.fmt-check]
+description = "Check formatting without writing"
+run = [
+  "cargo fmt --check",
+  "tombi format --check *.toml",
+  "biome format",
+]
 
-[tasks.clippy]
-description = "Run Clippy lints"
-run = "cargo clippy -- -D warnings"
+[tasks.lint]
+description = "Run all linters"
+run = [
+  "biome check",
+  "cargo clippy -- -D warnings",
+]
 
 [tasks.test]
 description = "Run tests"

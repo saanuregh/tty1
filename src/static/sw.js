@@ -49,12 +49,12 @@ self.addEventListener("fetch", (event) => {
 			(async () => {
 				const cache = await caches.open(CACHE_NAME);
 				const cached = await cache.match(event.request);
-				const fresh = Promise.race([
-					fetch(event.request),
-					new Promise((_, reject) =>
-						setTimeout(() => reject(new Error("timeout")), 10000),
-					),
-				]).then((response) => {
+				const controller = new AbortController();
+				const timer = setTimeout(() => controller.abort(), 10000);
+				const fresh = fetch(event.request, {
+					signal: controller.signal,
+				}).then((response) => {
+					clearTimeout(timer);
 					if (response.ok) cache.put(event.request, response.clone());
 					return response;
 				});

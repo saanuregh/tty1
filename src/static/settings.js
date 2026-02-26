@@ -1,27 +1,24 @@
-(function () {
-	// Theme
+(() => {
 	function updateThemeBtns() {
 		const current = getTheme();
-		$$(".theme-btn").forEach((btn) => {
+		for (const btn of $$(".theme-btn"))
 			btn.classList.toggle("active", btn.dataset.theme === current);
-		});
 	}
 
 	updateThemeBtns();
 
-	$$(".theme-btn").forEach((btn) => {
+	for (const btn of $$(".theme-btn")) {
 		btn.addEventListener("click", () => {
 			setTheme(btn.dataset.theme);
 			updateThemeBtns();
 		});
-	});
+	}
 
 	document.addEventListener("keydown", (e) => {
 		if (isTyping(e)) return;
 		if (e.key === ",") window.location.href = "/";
 	});
 
-	// Profile
 	const panelBtns = $$(".panel-toggle");
 	const checkGroups = {
 		sub: $$(".sub-check"),
@@ -53,28 +50,26 @@
 		return btn ? btn.dataset[key] : btns[0]?.dataset[key];
 	}
 	function radioGroup(btns, key, stored, cb) {
-		btns.forEach((b) =>
-			b.classList.toggle("active", b.dataset[key] === stored),
-		);
-		btns.forEach((btn) => {
+		for (const btn of btns) {
+			btn.classList.toggle("active", btn.dataset[key] === stored);
 			btn.addEventListener("click", () => {
-				btns.forEach((b) => b.classList.remove("active"));
+				for (const b of btns) b.classList.remove("active");
 				btn.classList.add("active");
 				cb();
 			});
-		});
+		}
 	}
 	function reorderButtons(keys) {
 		if (!container) return;
-		keys.forEach((key) => {
-			const btn = container.querySelector('[data-panel="' + key + '"]');
+		for (const key of keys) {
+			const btn = container.querySelector(`[data-panel="${key}"]`);
 			if (btn) container.appendChild(btn);
-		});
+		}
 	}
 
 	function updateToggleText(target) {
 		const checks = checkGroups[target];
-		const btn = $('.select-toggle[data-target="' + target + '"]');
+		const btn = $(`.select-toggle[data-target="${target}"]`);
 		if (btn)
 			btn.textContent = Array.from(checks).every((c) => c.checked)
 				? "deselect all"
@@ -97,7 +92,7 @@
 		const period = activeVal(periodBtns, "period");
 		if (period !== periodBtns[0]?.dataset.period) params.set("period", period);
 		const qs = params.toString();
-		return window.location.origin + "/" + (qs ? "?" + qs : "");
+		return `${window.location.origin}/${qs ? `?${qs}` : ""}`;
 	}
 
 	function saveProfile() {
@@ -107,10 +102,10 @@
 			["subs", checked(checkGroups.sub), checkGroups.sub.length],
 			["langs", checked(checkGroups.lang), checkGroups.lang.length],
 		];
-		sets.forEach(([key, values, total]) => {
+		for (const [key, values, total] of sets) {
 			if (values.length === total) delete d[key];
 			else d[key] = values;
-		});
+		}
 		const order = panelOrder();
 		if (order.every((k, i) => k === DEFAULT_ORDER[i])) delete d.order;
 		else d.order = order;
@@ -118,26 +113,20 @@
 		if (hn !== hnBtns[0]?.dataset.hn) d["hn-select"] = hn;
 		else delete d["hn-select"];
 		const period = activeVal(periodBtns, "period");
-		if (period !== periodBtns[0]?.dataset.period) d.gh = "gh-tab-" + period;
+		if (period !== periodBtns[0]?.dataset.period) d.gh = `gh-tab-${period}`;
 		else delete d.gh;
 		save(d);
 		if (shareInput) shareInput.value = generateShareUrl();
 	}
 
-	// Init from localStorage
 	const d = load();
 	if (d.panels)
-		panelBtns.forEach((b) =>
-			b.classList.toggle("active", d.panels.includes(b.dataset.panel)),
-		);
+		for (const b of panelBtns)
+			b.classList.toggle("active", d.panels.includes(b.dataset.panel));
 	if (d.subs)
-		checkGroups.sub.forEach((c) => {
-			c.checked = d.subs.includes(c.value);
-		});
+		for (const c of checkGroups.sub) c.checked = d.subs.includes(c.value);
 	if (d.langs)
-		checkGroups.lang.forEach((c) => {
-			c.checked = d.langs.includes(c.value);
-		});
+		for (const c of checkGroups.lang) c.checked = d.langs.includes(c.value);
 	if (d.order) reorderButtons(d.order);
 	radioGroup(
 		hnBtns,
@@ -155,8 +144,7 @@
 	updateToggleText("lang");
 	if (shareInput) shareInput.value = generateShareUrl();
 
-	// Panel toggles
-	panelBtns.forEach((btn) => {
+	for (const btn of panelBtns) {
 		btn.addEventListener("click", () => {
 			btn.classList.toggle("active");
 			if (activePanels().length === 0) {
@@ -165,18 +153,17 @@
 			}
 			saveProfile();
 		});
-	});
+	}
 
-	// Drag-and-drop reorder
 	if (container) {
-		panelBtns.forEach((btn) => {
+		for (const btn of panelBtns) {
 			btn.draggable = true;
 			btn.addEventListener("dragstart", () => btn.classList.add("dragging"));
 			btn.addEventListener("dragend", () => {
 				btn.classList.remove("dragging");
 				saveProfile();
 			});
-		});
+		}
 		container.addEventListener("dragover", (e) => {
 			e.preventDefault();
 			const dragging = container.querySelector(".dragging");
@@ -192,30 +179,24 @@
 		});
 	}
 
-	// Checkbox changes
-	Object.entries(checkGroups).forEach(([target, checks]) => {
-		checks.forEach((cb) =>
+	for (const [target, checks] of Object.entries(checkGroups)) {
+		for (const cb of checks)
 			cb.addEventListener("change", () => {
 				updateToggleText(target);
 				saveProfile();
-			}),
-		);
-	});
+			});
+	}
 
-	// Select/deselect all
-	$$(".select-toggle").forEach((btn) => {
+	for (const btn of $$(".select-toggle")) {
 		btn.addEventListener("click", () => {
 			const checks = checkGroups[btn.dataset.target];
 			const allChecked = Array.from(checks).every((c) => c.checked);
-			checks.forEach((c) => {
-				c.checked = !allChecked;
-			});
+			for (const c of checks) c.checked = !allChecked;
 			updateToggleText(btn.dataset.target);
 			saveProfile();
 		});
-	});
+	}
 
-	// Copy share URL
 	if (shareBtn) {
 		shareBtn.addEventListener("click", () => {
 			navigator.clipboard.writeText(shareInput.value).then(() => {
@@ -227,19 +208,17 @@
 		});
 	}
 
-	// Reset
 	$(".reset-btn").addEventListener("click", () => {
 		localStorage.removeItem(KEY);
 		document.documentElement.removeAttribute("data-theme");
 		updateThemeBtns();
-		panelBtns.forEach((b) => b.classList.add("active"));
-		hnBtns.forEach((b, i) => b.classList.toggle("active", i === 0));
-		periodBtns.forEach((b, i) => b.classList.toggle("active", i === 0));
-		Object.values(checkGroups).forEach((checks) =>
-			checks.forEach((c) => {
-				c.checked = true;
-			}),
-		);
+		for (const b of panelBtns) b.classList.add("active");
+		for (const [i, b] of hnBtns.entries())
+			b.classList.toggle("active", i === 0);
+		for (const [i, b] of periodBtns.entries())
+			b.classList.toggle("active", i === 0);
+		for (const checks of Object.values(checkGroups))
+			for (const c of checks) c.checked = true;
 		updateToggleText("sub");
 		updateToggleText("lang");
 		reorderButtons(DEFAULT_ORDER);

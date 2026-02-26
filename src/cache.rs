@@ -14,14 +14,11 @@ use crate::providers::hackernews::HnPages;
 use crate::providers::reddit::RedditFeed;
 use crate::render;
 
-#[derive(serde::Serialize)]
 pub struct DataSnapshot {
     pub hn_pages: HnPages,
     pub gh_trending: GhTrending,
     pub reddit_feed: RedditFeed,
     pub last_fetched: DateTime<Utc>,
-    #[serde(skip)]
-    pub etag: String,
 }
 
 /// Pre-rendered + compressed HTML. `Bytes` fields are cheap (refcount) clones on each request.
@@ -75,7 +72,7 @@ const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 
 /// FNV-1a hash — deterministic across restarts (unlike DefaultHasher).
-pub fn compute_etag(data: &[u8]) -> String {
+fn compute_etag(data: &[u8]) -> String {
     let mut hash = FNV_OFFSET_BASIS;
     for &byte in data {
         hash ^= byte as u64;
@@ -110,7 +107,6 @@ pub fn new_shared_data() -> SharedData {
         gh_trending: GhTrending::new(),
         reddit_feed: RedditFeed::new(),
         last_fetched: DateTime::UNIX_EPOCH,
-        etag: compute_etag(b"empty"),
     })))
 }
 

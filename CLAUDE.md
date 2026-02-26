@@ -27,7 +27,7 @@ All optional — the app runs with sensible defaults and no configuration:
 ```
 src/
   main.rs          # server setup, routing, signal handling
-  routes.rs        # HTTP handlers (index, settings, favicon, icon, manifest, sw.js, api/*)
+  routes.rs        # HTTP handlers (index, settings, favicon, icon, manifest, sw.js, api/health)
   config.rs        # all constants (ports, intervals, URLs, subreddits, languages)
   cache.rs         # ArcSwap-backed shared state, compression (gzip/zstd), ETag
   worker.rs        # background scraper (30 min) and HTML refresher (1 min)
@@ -69,7 +69,7 @@ src/
 
 - Config is compile-time constants in `config.rs` — only PORT and proxy are read from env
 - HTML is built with Maud macros (compile-time checked), not string templates
-- Frontend is vanilla JS (~750 lines across 3 files) — no build step, no framework
+- Frontend is vanilla JS (~735 lines across 3 files) — no build step, no framework
 - CSS is split by concern (common/dashboard/settings) and inlined into each page's HTML response
 - Provider tests make live HTTP requests (not mocked)
 - Security headers (X-Frame-Options, CSP, etc.) are applied via middleware in `routes.rs`

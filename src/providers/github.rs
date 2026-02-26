@@ -37,7 +37,7 @@ static SELECTORS: LazyLock<Option<Selectors>> = LazyLock::new(|| {
 /// Key: (period, language) e.g. ("daily", "all"), ("weekly", "Rust")
 pub type GhTrending = HashMap<(String, String), Vec<TrendingRepo>>;
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone)]
 pub struct TrendingRepo {
     pub author: String,
     pub name: String,

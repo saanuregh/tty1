@@ -1,0 +1,29 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.4.4/schema.json",
+	"files": {
+		"includes": ["src/static/**"]
+	},
+	"formatter": {
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"rules": {
+			"recommended": true,
+			"correctness": {
+				// JS files share global scope via include_str!() — not modules
+				"noUnusedVariables": "off",
+				"noUnusedFunctionParameters": "off"
+			},
+			"suspicious": {
+				// forEach with single-expression arrows harmlessly return values
+				"useIterableCallbackReturn": "off"
+			}
+		}
+	},
+	"css": {
+		// !important in prefers-reduced-motion overrides is intentional
+		"linter": {
+			"enabled": false
+		}
+	}
+}

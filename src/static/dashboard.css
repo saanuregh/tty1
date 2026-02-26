@@ -38,13 +38,11 @@
 		grid-template-columns: 1fr;
 		grid-template-rows: 1fr;
 	}
-	.dashboard[data-visible="1"] .reddit-panel {
-		grid-column: auto;
-	}
 	.dashboard[data-visible="2"] {
 		grid-template-columns: repeat(2, 1fr);
 		grid-template-rows: 1fr;
 	}
+	.dashboard[data-visible="1"] .reddit-panel,
 	.dashboard[data-visible="2"] .reddit-panel {
 		grid-column: auto;
 	}
@@ -99,16 +97,13 @@
 .panel-header .source-icon {
 	display: flex;
 	align-items: center;
+	color: var(--accent-hn);
 }
 
 .panel-header .source-icon svg {
 	width: 14px;
 	height: 14px;
 	fill: currentColor;
-}
-
-.panel-header .source-icon {
-	color: var(--accent-hn);
 }
 .gh-panel .panel-header .source-icon {
 	color: var(--accent-gh);
@@ -117,11 +112,15 @@
 	color: var(--accent-reddit);
 }
 
-.panel-header .source-name {
+a.source-name {
 	color: var(--text-heading);
 	font-size: 13px;
 	font-weight: 600;
 	letter-spacing: 0.02em;
+	text-decoration: none;
+}
+a.source-name:hover {
+	text-decoration: underline;
 }
 
 /* Panel header controls */
@@ -158,19 +157,19 @@
 	border-color: var(--accent-reddit);
 }
 
+.hn-select:focus-visible,
+.lang-select:focus-visible,
+.subreddit-select:focus-visible {
+	outline-offset: 1px;
+}
 .hn-select:focus-visible {
 	outline: 2px solid var(--accent-hn);
-	outline-offset: 1px;
 }
-
 .lang-select:focus-visible {
 	outline: 2px solid var(--accent-gh);
-	outline-offset: 1px;
 }
-
 .subreddit-select:focus-visible {
 	outline: 2px solid var(--accent-reddit);
-	outline-offset: 1px;
 }
 
 .tab-labels {
@@ -226,6 +225,19 @@
 .hn-panel ol.stories[data-for-page]:first-of-type,
 .gh-panel ol.repos[data-for-lang]:first-of-type,
 .reddit-panel ol.reddit-posts[data-for-sub]:first-of-type {
+	display: block;
+}
+
+/* Empty state */
+
+.empty-state {
+	display: none;
+	color: var(--text-meta);
+	padding: 16px;
+	font-size: 12px;
+}
+
+.empty-state:only-child {
 	display: block;
 }
 
@@ -351,17 +363,19 @@
 	color: var(--text-visited);
 }
 
+.story-title a:hover,
+.repo-title a:hover,
+.reddit-post-title a:hover {
+	text-decoration: underline;
+}
 .story-title a:hover {
 	color: var(--accent-hn);
-	text-decoration: underline;
 }
 .repo-title a:hover {
 	color: var(--accent-gh);
-	text-decoration: underline;
 }
 .reddit-post-title a:hover {
 	color: var(--accent-reddit);
-	text-decoration: underline;
 }
 
 /* Item meta */
@@ -420,7 +434,6 @@
 
 .story-domain {
 	color: var(--text-domain);
-	font-size: 11px;
 	margin-left: 4px;
 }
 
@@ -550,7 +563,6 @@
 
 .settings-link {
 	color: var(--text-meta);
-	font-size: 11px;
 	text-decoration: none;
 	pointer-events: auto;
 }

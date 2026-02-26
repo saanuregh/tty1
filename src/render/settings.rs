@@ -12,6 +12,10 @@ pub fn render_settings_page() -> String {
                     a href="/" { "← tty1" }
                     h1 { "settings" }
                 }
+                noscript {
+                    style { ".settings-grid { display: none }" }
+                    p.noscript-msg { "JavaScript is required for settings." }
+                }
 
                 div.settings-grid {
                     div.settings-col {
@@ -153,6 +157,13 @@ pub fn render_settings_page() -> String {
                                     span.keybind-desc { "settings / back" }
                                 }
                             }
+                        }
+                        div.settings-footer {
+                            a.github-link href="https://github.com/saanuregh/tty1" target="_blank" rel="noopener" {
+                                (PreEscaped(include_str!("../static/icons/github.svg")))
+                                "saanuregh/tty1"
+                            }
+                            " · MIT · 2025"
                         }
                     }
                 }

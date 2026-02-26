@@ -16,8 +16,10 @@ pub const SCRAPE_JITTER_SECS: u64 = 300;
 pub const HTML_REFRESH_SECS: u64 = 60;
 pub const LOADING_PAGE_TTL_SECS: u64 = 3;
 pub const HANDLER_TIMEOUT_SECS: u64 = 10;
+pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+pub const MAX_RETRIES: u32 = 3;
 pub const GZIP_LEVEL: u32 = 6;
-pub const ZSTD_LEVEL: i32 = 3;
+pub const ZSTD_LEVEL: i32 = 6;
 
 // -- Hacker News --
 pub const HN_API_BASE: &str = "https://hacker-news.firebaseio.com/v0";

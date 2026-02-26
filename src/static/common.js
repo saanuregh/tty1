@@ -27,14 +27,11 @@ function isTyping(e) {
 	return e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA";
 }
 
-// Load profile, apply fn, save back
 function update(fn) {
 	const d = load();
 	fn(d);
 	save(d);
 }
-
-// Theme
 
 function getTheme() {
 	return document.documentElement.dataset.theme || "dark";
@@ -47,7 +44,6 @@ function setTheme(theme) {
 	});
 }
 
-// Time — duplicated from render/utils.rs, keep both in sync.
 const TIME_UNITS = [
 	[31536000, "y"],
 	[2592000, "mo"],
@@ -59,9 +55,9 @@ const TIME_UNITS = [
 
 function timeAgo(ts) {
 	const elapsed = Math.floor(Date.now() / 1000) - ts;
-	for (let i = 0; i < TIME_UNITS.length; i++) {
-		const count = Math.floor(elapsed / TIME_UNITS[i][0]);
-		if (count > 0) return count + TIME_UNITS[i][1];
+	for (const [secs, label] of TIME_UNITS) {
+		const count = Math.floor(elapsed / secs);
+		if (count > 0) return count + label;
 	}
 	return "0m";
 }

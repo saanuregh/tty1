@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::client::Client;
 use futures::stream::{self, StreamExt};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::{info, warn};
 
 use super::FetchError;
@@ -11,7 +11,7 @@ use crate::config;
 /// Key: subreddit name (lowercase) or "all" for the merged top-N view.
 pub type RedditFeed = HashMap<String, Vec<RedditPost>>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RedditPost {
     pub title: String,
     #[serde(default)]

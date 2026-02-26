@@ -25,7 +25,6 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/settings", get(settings))
-        .route("/api/data", get(api_data))
         .route("/api/health", get(api_health))
         .route("/favicon.svg", get(favicon))
         .route("/icon.svg", get(app_icon))
@@ -118,32 +117,6 @@ async fn settings() -> Response {
 }
 
 // ── API ─────────────────────────────────────────────────────────────
-
-async fn api_data(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let snapshot = state.data.load_full();
-
-    if let Some(r) = not_modified(&headers, &snapshot.etag, "public, max-age=60") {
-        return r;
-    }
-
-    let body = match serde_json::to_vec(&*snapshot) {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to serialize data snapshot");
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .expect("valid response");
-        }
-    };
-
-    Response::builder()
-        .header(CONTENT_TYPE, "application/json")
-        .header(CACHE_CONTROL, "public, max-age=60")
-        .header(ETAG, &*snapshot.etag)
-        .body(Body::from(body))
-        .expect("valid response")
-}
 
 async fn api_health(State(state): State<AppState>) -> (StatusCode, &'static str) {
     if state.data.load().last_fetched.timestamp() > 0 {

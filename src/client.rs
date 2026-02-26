@@ -9,17 +9,16 @@ use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use reqwest_tracing::TracingMiddleware;
 use tracing::info;
 
-pub type Client = reqwest_middleware::ClientWithMiddleware;
+use crate::config;
 
-const REQUEST_TIMEOUT_SECS: u64 = 10;
-const MAX_RETRIES: u32 = 3;
+pub type Client = reqwest_middleware::ClientWithMiddleware;
 
 /// Chrome 145 on Windows 10 — the single most common browser/OS combination.
 const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
 
 pub fn build_client() -> Client {
     let mut builder = reqwest::Client::builder()
-        .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        .timeout(Duration::from_secs(config::REQUEST_TIMEOUT_SECS))
         .cookie_store(true)
         .default_headers(chrome_headers());
 
@@ -32,7 +31,7 @@ pub fn build_client() -> Client {
 
     let raw_client = builder.build().expect("failed to build HTTP client");
 
-    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(MAX_RETRIES);
+    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(config::MAX_RETRIES);
 
     ClientBuilder::new(raw_client)
         .with(TracingMiddleware::default())

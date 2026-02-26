@@ -19,7 +19,7 @@ pub fn render_page(
             section.panel.hn-panel aria-label="Hacker News" {
                 header.panel-header {
                     span.source-icon aria-hidden="true" { (PreEscaped(include_str!("../static/icons/hn.svg"))) }
-                    span.source-name { "Hackernews" }
+                    a.source-name.hn-link href="https://news.ycombinator.com/" target="_blank" rel="noopener" { "Hackernews" }
                     select.hn-select aria-label="HN page" {
                         @for (i, &(name, _)) in config::HN_PAGES.iter().enumerate() {
                             option value=(name) selected[i == 0] { (name) }
@@ -31,7 +31,7 @@ pub fn render_page(
             section.panel.gh-panel aria-label="GitHub Trending" {
                 header.panel-header {
                     span.source-icon.gh-icon aria-hidden="true" { (PreEscaped(include_str!("../static/icons/github.svg"))) }
-                    span.source-name { "GitHub Trending" }
+                    a.source-name.gh-link href="https://github.com/trending" target="_blank" rel="noopener" { "GitHub Trending" }
                     .tab-labels role="tablist" aria-label="Trending period" {
                         @for (i, &period) in config::GITHUB_PERIODS.iter().enumerate() {
                             input id=(format!("gh-tab-{period}"))
@@ -67,7 +67,7 @@ pub fn render_page(
             section.panel.reddit-panel aria-label="Reddit" {
                 header.panel-header {
                     span.source-icon.reddit-icon aria-hidden="true" { (PreEscaped(include_str!("../static/icons/reddit.svg"))) }
-                    span.source-name { "Reddit" }
+                    a.source-name.reddit-link href="https://www.reddit.com" target="_blank" rel="noopener" { "Reddit" }
                     select.subreddit-select aria-label="Subreddit" {
                         option value=(config::FILTER_ALL) selected { (config::FILTER_ALL) }
                         @for sub in config::REDDIT_SUBREDDITS {
@@ -187,6 +187,7 @@ fn render_hn_pages(hn_pages: &HnPages) -> Markup {
     html! {
         @for &(name, _) in config::HN_PAGES {
             ol.stories data-for-page=(name) {
+                li.empty-state { "no stories" }
                 @for story in hn_pages.get(name).into_iter().flatten() {
                     li.story { (render_hn_story(story)) }
                 }
@@ -202,6 +203,7 @@ fn render_gh_trending(trending: &GhTrending, period: &str) -> Markup {
     html! {
         @for key in lang_keys {
             ol.repos data-for-lang=(key.to_lowercase()) {
+                li.empty-state { "no repos" }
                 @let lookup = (period.to_string(), key.to_string());
                 @for repo in trending.get(&lookup).into_iter().flatten() {
                     li.repo { (render_gh_repo(repo)) }
@@ -217,6 +219,7 @@ fn render_reddit_feed(feed: &RedditFeed) -> Markup {
     html! {
         @for sub in subs {
             ol.reddit-posts data-for-sub=(sub) {
+                li.empty-state { "no posts" }
                 @for post in feed.get(sub).into_iter().flatten() {
                     li.reddit-post data-sub=(post.subreddit) { (render_reddit_post(post)) }
                 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::client::Client;
 use futures::stream::{self, StreamExt};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::warn;
 
 use super::FetchError;
@@ -11,15 +11,15 @@ use crate::config;
 /// Per-page story data: key is page display name ("top", "newest", "show").
 pub type HnPages = HashMap<String, Vec<HnStory>>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct HnStory {
-    #[serde(default, skip_serializing)]
+    #[serde(default)]
     id: u64,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub url: Option<String>,
-    #[serde(default, skip_deserializing)]
+    #[serde(skip)]
     pub hn_url: String,
     #[serde(default)]
     pub score: u32,

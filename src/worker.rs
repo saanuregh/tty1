@@ -104,14 +104,12 @@ async fn fetch_and_update(
     let reddit_count: usize = reddit_feed.values().map(|v| v.len()).sum();
 
     let last_fetched = Utc::now();
-    let etag = crate::cache::compute_etag(last_fetched.timestamp_millis().to_string().as_bytes());
 
     data.store(Arc::new(DataSnapshot {
         hn_pages,
         gh_trending,
         reddit_feed,
         last_fetched,
-        etag,
     }));
 
     (hn_count, gh_count, reddit_count, start.elapsed())

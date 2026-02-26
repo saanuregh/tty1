@@ -1,6 +1,6 @@
 # tty1
 
-A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~750 lines, no framework), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
+A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~735 lines, no framework), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
 
 ![screenshot](.github/screenshot.png)
 
@@ -67,7 +67,6 @@ All optional — the app runs with sensible defaults:
 |---|---|
 | `GET /` | Dashboard HTML (pre-compressed, ETag support) |
 | `GET /settings` | Settings page (theme, panel order, filters) |
-| `GET /api/data` | All aggregated data as JSON |
 | `GET /api/health` | `200` if data is loaded, `503` while still fetching |
 
 ## Architecture
@@ -80,7 +79,6 @@ Each provider fetches concurrently using buffered streams (HN: 10, GitHub: 6, Re
 Axum server (:3000)
   ├── GET /           → pre-compressed HTML from ArcSwap
   ├── GET /settings   → settings page (rendered on request)
-  ├── GET /api/data   → JSON snapshot of current data
   └── GET /api/health → 200/503 based on data availability
 
 Background tasks (Tokio)

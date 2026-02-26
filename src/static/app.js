@@ -1,71 +1,77 @@
-(function () {
+(() => {
 	const SELECTORS = ["hn-select", "lang-select", "subreddit-select"];
-
-	// Helpers
 
 	function scoreOf(el, sel) {
 		return (
-			parseInt(el.querySelector(sel)?.textContent.replace(/[^\d]/g, "")) || 0
+			parseInt(el.querySelector(sel)?.textContent.replace(/[^\d]/g, ""), 10) ||
+			0
 		);
 	}
 
-	// Collect cloned items from multiple lists, sorted by score
 	function mergeClones(listSelector, itemSelector, scoreSel, keys) {
 		const items = [];
-		keys.forEach((k) => {
+		for (const k of keys) {
 			const ol = $(listSelector.replace("$", k));
 			if (ol)
-				ol.querySelectorAll(itemSelector).forEach((el) =>
-					items.push(el.cloneNode(true)),
-				);
-		});
+				for (const el of ol.querySelectorAll(itemSelector))
+					items.push(el.cloneNode(true));
+		}
 		items.sort((a, b) => scoreOf(b, scoreSel) - scoreOf(a, scoreSel));
 		return items;
 	}
 
-	// Filters
+	function showList(selector, attr, value) {
+		for (const ol of $$(selector))
+			ol.style.display = ol.dataset[attr] === value ? "block" : "none";
+	}
 
 	function applyFilters() {
 		const page = $(".hn-select").value;
-		$$(".hn-panel ol.stories").forEach((ol) => {
-			ol.style.display = ol.dataset.forPage === page ? "block" : "none";
-		});
+		showList(".hn-panel ol.stories", "forPage", page);
+		const hnLink = $(".hn-link");
+		if (hnLink) {
+			const hnPath = page === "top" ? "" : `/${page}`;
+			hnLink.href = `https://news.ycombinator.com${hnPath}`;
+		}
 
 		const tabId = $('[name="gh-tab"]:checked').id;
 		const period = tabId.replace("gh-tab-", "");
-		$$(".tab-content").forEach((el) =>
-			el.classList.toggle("active", el.id === "gh-" + period),
-		);
-		$$(".tab-labels label").forEach((label) => {
+		for (const el of $$(".tab-content"))
+			el.classList.toggle("active", el.id === `gh-${period}`);
+		for (const label of $$(".tab-labels label")) {
 			const active = label.getAttribute("for") === tabId;
 			label.classList.toggle("active", active);
 			label.setAttribute("aria-selected", active);
-		});
+		}
 
 		const lang = $(".lang-select").value;
-		$$(".gh-panel ol.repos").forEach((ol) => {
-			ol.style.display = ol.dataset.forLang === lang ? "block" : "none";
-		});
+		showList(".gh-panel ol.repos", "forLang", lang);
+		const ghLink = $(".gh-link");
+		if (ghLink) {
+			const langPath = lang === "all" || lang === "mine" ? "" : `/${lang}`;
+			ghLink.href = `https://github.com/trending${langPath}?since=${period}`;
+		}
 
 		const sub = $(".subreddit-select").value;
-		$$(".reddit-panel ol.reddit-posts").forEach((ol) => {
-			ol.style.display = ol.dataset.forSub === sub ? "block" : "none";
-		});
+		showList(".reddit-panel ol.reddit-posts", "forSub", sub);
+		const redditLink = $(".reddit-link");
+		if (redditLink) {
+			redditLink.href =
+				sub === "all"
+					? "https://www.reddit.com"
+					: `https://www.reddit.com/r/${sub}`;
+		}
 	}
-
-	// Profile
 
 	function applyProfile() {
 		const d = load();
 		const { panels, subs, langs, order } = d;
 
-		// HN/GH defaults
 		const hnSelect = $(".hn-select");
 		if (hnSelect && d["hn-select"]) hnSelect.value = d["hn-select"];
 		const ghRadio = d.gh && document.getElementById(d.gh);
 		if (ghRadio) ghRadio.checked = true;
 
-		// Panels — visibility + order
 		const dashboard = $(".dashboard");
 		const PANELS = [
 			["hn", ".hn-panel", ".dot-hn"],
@@ -74,7 +80,7 @@
 		];
 		const panelOrder = order || DEFAULT_ORDER;
 		let visibleCount = 0;
-		PANELS.forEach(([key, panelSel, dotSel]) => {
+		for (const [key, panelSel, dotSel] of PANELS) {
 			const show = !panels || panels.includes(key);
 			const idx = panelOrder.indexOf(key);
 			const panel = $(panelSel);
@@ -88,16 +94,15 @@
 				dot.style.order = idx;
 			}
 			if (show) visibleCount++;
-		});
+		}
 		if (dashboard) dashboard.dataset.visible = visibleCount;
 
-		// Reddit subs — filter dropdown + rebuild "all" list
 		const subSelect = $(".subreddit-select");
 		if (subSelect && subs) {
-			Array.from(subSelect.options).forEach((o) => {
+			for (const o of subSelect.options) {
 				if (o.value !== "all")
 					o.style.display = subs.includes(o.value) ? "" : "none";
-			});
+			}
 			if (subSelect.value !== "all" && !subs.includes(subSelect.value)) {
 				subSelect.value = "all";
 				subSelect.dispatchEvent(new Event("change", { bubbles: true }));
@@ -115,7 +120,6 @@
 			}
 		}
 
-		// GitHub "mine" filter
 		const langSelect = $(".lang-select");
 		if (langSelect) {
 			const hasMine = langSelect.querySelector('option[value="mine"]');
@@ -127,29 +131,25 @@
 					langSelect.options[0].after(opt);
 				}
 				const lowerLangs = langs.map((l) => l.toLowerCase());
-				$$(".tab-content").forEach((tab) => {
-					const old = tab.querySelector('.repos[data-for-lang="mine"]');
-					if (old) old.remove();
+				for (const tab of $$(".tab-content")) {
+					tab.querySelector('.repos[data-for-lang="mine"]')?.remove();
 					const ol = document.createElement("ol");
 					ol.className = "repos";
 					ol.dataset.forLang = "mine";
 					ol.style.display = "none";
 					const repos = [];
-					lowerLangs.forEach((lang) => {
-						const src = tab.querySelector(
-							'.repos[data-for-lang="' + lang + '"]',
-						);
+					for (const lang of lowerLangs) {
+						const src = tab.querySelector(`.repos[data-for-lang="${lang}"]`);
 						if (src)
-							src
-								.querySelectorAll(".repo")
-								.forEach((r) => repos.push(r.cloneNode(true)));
-					});
+							for (const r of src.querySelectorAll(".repo"))
+								repos.push(r.cloneNode(true));
+					}
 					repos.sort(
 						(a, b) => scoreOf(b, ".repo-stars") - scoreOf(a, ".repo-stars"),
 					);
 					ol.append(...repos);
 					tab.appendChild(ol);
-				});
+				}
 			} else {
 				if (hasMine) {
 					if (langSelect.value === "mine") {
@@ -158,36 +158,33 @@
 					}
 					hasMine.remove();
 				}
-				$$('.repos[data-for-lang="mine"]').forEach((ol) => ol.remove());
+				for (const ol of $$('.repos[data-for-lang="mine"]')) ol.remove();
 			}
 		}
 	}
 
-	// Import profile from URL params
 	const params = new URLSearchParams(window.location.search);
 	const urlProfile = {};
-	["panels", "subs", "langs", "order"].forEach((k) => {
+	for (const k of ["panels", "subs", "langs", "order"]) {
 		const v = params.get(k);
 		if (v) urlProfile[k] = v.split(",");
-	});
+	}
 	const hnParam = params.get("hn");
 	if (hnParam) urlProfile["hn-select"] = hnParam;
 	const periodParam = params.get("period");
-	if (periodParam) urlProfile.gh = "gh-tab-" + periodParam;
+	if (periodParam) urlProfile.gh = `gh-tab-${periodParam}`;
 	if (Object.keys(urlProfile).length) {
 		save(Object.assign(load(), urlProfile));
 		history.replaceState({}, "", window.location.pathname);
 	}
 
 	const state = load();
-	SELECTORS.forEach((c) => {
-		const el = $("." + c);
+	for (const c of SELECTORS) {
+		const el = $(`.${c}`);
 		if (el && state[c]) el.value = state[c];
-	});
+	}
 	applyProfile();
 	applyFilters();
-
-	// Keyboard navigation
 
 	let activePanel = 0;
 	let focusedIdx = -1;
@@ -195,17 +192,14 @@
 	function getVisibleItems(panelIdx) {
 		const panel = $$(".panel")[panelIdx];
 		if (!panel) return [];
-		const lists = panel.querySelectorAll("ol");
-		for (let i = 0; i < lists.length; i++) {
-			if (lists[i].style.display !== "none")
-				return lists[i].querySelectorAll("li");
+		for (const ol of panel.querySelectorAll("ol")) {
+			if (ol.style.display !== "none") return ol.querySelectorAll("li");
 		}
 		return [];
 	}
 
 	function clearFocus() {
-		const el = $(".focused");
-		if (el) el.classList.remove("focused");
+		$(".focused")?.classList.remove("focused");
 	}
 
 	function setFocus(idx) {
@@ -226,7 +220,10 @@
 
 	function navigate(a, newTab) {
 		if (!a) return;
-		if (newTab) window.open(a.href, "_blank");
+		if (newTab)
+			a.dispatchEvent(
+				new MouseEvent("click", { ctrlKey: true, bubbles: true }),
+			);
 		else window.location.href = a.href;
 	}
 
@@ -241,16 +238,14 @@
 		navigate(links.length > 1 ? links[links.length - 1] : links[0], newTab);
 	}
 
-	// Event listeners
-
 	document.addEventListener("change", () => {
 		update((d) => {
 			const r = $('[name="gh-tab"]:checked');
 			if (r) d.gh = r.id;
-			SELECTORS.forEach((c) => {
-				const el = $("." + c);
+			for (const c of SELECTORS) {
+				const el = $(`.${c}`);
 				if (el) d[c] = el.value;
-			});
+			}
 		});
 		applyFilters();
 		clearFocus();
@@ -282,27 +277,24 @@
 			e.preventDefault();
 			const panels = $$(".panel");
 			const visible = [];
-			panels.forEach((p, i) => {
+			for (const [i, p] of panels.entries()) {
 				if (!p.classList.contains("panel-hidden")) visible.push(i);
-			});
+			}
 			visible.sort(
 				(a, b) =>
-					(parseInt(panels[a].style.order) || 0) -
-					(parseInt(panels[b].style.order) || 0),
+					(parseInt(panels[a].style.order, 10) || 0) -
+					(parseInt(panels[b].style.order, 10) || 0),
 			);
 			if (visible.length === 0) return;
 			const cur = visible.indexOf(activePanel);
-			let next;
-			if (cur === -1) next = 0;
-			else if (e.key === "h")
-				next = (cur - 1 + visible.length) % visible.length;
-			else next = (cur + 1) % visible.length;
+			const delta = e.key === "h" ? -1 : 1;
+			const next =
+				cur === -1 ? 0 : (cur + delta + visible.length) % visible.length;
 			activePanel = visible[next];
 			clearFocus();
 			focusedIdx = -1;
-			panels.forEach((p, i) =>
-				p.classList.toggle("active-panel", i === activePanel),
-			);
+			for (const [i, p] of panels.entries())
+				p.classList.toggle("active-panel", i === activePanel);
 		} else if (e.key === "f") {
 			e.preventDefault();
 			const panel = $$(".panel")[activePanel];
@@ -347,16 +339,13 @@
 		if (desc) desc.classList.toggle("expanded");
 	});
 
-	// Time refresh + auto-refresh
-
 	function refreshTimes() {
-		$$(".time-ago").forEach((el) => {
+		for (const el of $$(".time-ago")) {
 			const ts = parseInt(el.dataset.ts, 10);
 			if (ts) el.textContent = timeAgo(ts);
-		});
+		}
 		const ft = $(".last-updated-time");
-		if (ft && ft.dataset.ts)
-			ft.textContent = timeAgo(parseInt(ft.dataset.ts, 10));
+		if (ft?.dataset.ts) ft.textContent = timeAgo(parseInt(ft.dataset.ts, 10));
 	}
 
 	let etag = "";
@@ -390,7 +379,6 @@
 	setInterval(refreshTimes, 60000);
 	setInterval(autoRefresh, 900000);
 
-	// Offline banner
 	const banner = $(".offline-banner");
 	function setOffline(offline) {
 		if (!banner) return;
@@ -401,7 +389,6 @@
 	window.addEventListener("online", () => setOffline(false));
 	window.addEventListener("offline", () => setOffline(true));
 
-	// Mobile swipe
 	const mobileQuery = window.matchMedia("(max-width: 899px)");
 	let swipeObserver = null;
 
@@ -411,7 +398,8 @@
 		const dots = $$(".swipe-dot:not(.dot-hidden)");
 
 		const savedPanel = parseInt(state.panel || "0", 10);
-		dots.forEach((d, i) => d.classList.toggle("active", i === savedPanel));
+		for (const [i, d] of dots.entries())
+			d.classList.toggle("active", i === savedPanel);
 		if (savedPanel > 0 && panels[savedPanel]) {
 			dashboard.scrollTo({
 				left: savedPanel * dashboard.offsetWidth,
@@ -421,24 +409,25 @@
 
 		swipeObserver = new IntersectionObserver(
 			(entries) => {
-				entries.forEach((entry) => {
-					if (!entry.isIntersecting) return;
+				for (const entry of entries) {
+					if (!entry.isIntersecting) continue;
 					const idx = Array.prototype.indexOf.call(panels, entry.target);
-					dots.forEach((d, i) => d.classList.toggle("active", i === idx));
+					for (const [i, d] of dots.entries())
+						d.classList.toggle("active", i === idx);
 					update((d) => {
 						d.panel = idx;
 					});
-				});
+				}
 			},
 			{ root: dashboard, threshold: 0.5 },
 		);
-		panels.forEach((p) => swipeObserver.observe(p));
+		for (const p of panels) swipeObserver.observe(p);
 
-		dots.forEach((dot, i) => {
+		for (const [i, dot] of dots.entries()) {
 			dot.addEventListener("click", () => {
 				panels[i].scrollIntoView({ behavior: "smooth", inline: "start" });
 			});
-		});
+		}
 	}
 
 	function teardownSwipe() {
