@@ -13,7 +13,7 @@ RUN touch src/main.rs && cargo build --release
 
 # Stage 2: Runtime
 FROM gcr.io/distroless/cc-debian12
-COPY --from=busybox:1.36-uclibc /bin/wget /usr/bin/wget
+COPY --from=busybox:1.36-musl /bin/wget /usr/bin/wget
 COPY --from=builder /app/target/release/tty1 /tty1
 ENV RUST_LOG=info
 EXPOSE 3000
