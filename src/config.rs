@@ -17,7 +17,6 @@ pub const HTML_REFRESH_SECS: u64 = 60;
 pub const LOADING_PAGE_TTL_SECS: u64 = 3;
 pub const HANDLER_TIMEOUT_SECS: u64 = 10;
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
-pub const MAX_RETRIES: u32 = 3;
 pub const GZIP_LEVEL: u32 = 6;
 pub const ZSTD_LEVEL: i32 = 6;
 
@@ -33,7 +32,11 @@ pub const HN_PAGES: &[(&str, &str)] = &[
 
 // -- GitHub --
 pub const GITHUB_TRENDING_URL: &str = "https://github.com/trending";
-pub const GITHUB_CONCURRENT_FETCHES: usize = 6;
+/// GitHub applies secondary limits to bursty unauthenticated scraping; pace requests.
+/// More tolerant than Reddit, so faster (2/s) — still finishes under the Reddit leg.
+pub const GITHUB_REQUEST_INTERVAL_MS: u64 = 500;
+/// Randomize each gap by ±this so the cadence is not a fixed (bot-detectable) interval.
+pub const GITHUB_REQUEST_JITTER_MS: u64 = 150;
 pub const GITHUB_REPOS_PER_PAGE: usize = 25;
 pub const GITHUB_PERIODS: &[&str] = &["daily", "weekly", "monthly"];
 pub const GITHUB_LANGUAGES: &[(&str, &str)] = &[
@@ -96,6 +99,9 @@ pub const REDDIT_SUBREDDITS: &[&str] = &[
     "docker",
     "netsec",
 ];
-pub const REDDIT_CONCURRENT_FETCHES: usize = 3;
+/// Reddit blocks bursty datacenter traffic; requests are paced one per this interval.
+pub const REDDIT_REQUEST_INTERVAL_MS: u64 = 1000;
+/// Randomize each gap by ±this so the cadence is not a fixed (bot-detectable) interval.
+pub const REDDIT_REQUEST_JITTER_MS: u64 = 300;
 pub const REDDIT_POSTS_PER_SUB: usize = 30;
 pub const REDDIT_ALL_VIEW_LIMIT: usize = 100;

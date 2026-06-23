@@ -31,7 +31,7 @@ src/
   config.rs        # all constants (ports, intervals, URLs, subreddits, languages)
   cache.rs         # ArcSwap-backed shared state, compression (gzip/zstd), ETag
   worker.rs        # background scraper (30 min) and HTML refresher (1 min)
-  client.rs        # HTTP client (retry, tracing, browser emulation, proxy support)
+  client.rs        # HTTP client (tracing, browser emulation, proxy support)
   render/
     mod.rs         # re-exports: render_page, render_settings_page, render_loading_page
     dashboard.rs   # main dashboard page template (panels, items)
@@ -62,7 +62,7 @@ src/
 - **Independent provider failure**: All three providers run via `tokio::join!`. If one fails, its data stays unchanged (`keep_if_empty` pattern). Errors are logged, not propagated.
 - **Batched concurrent fetching**: `futures::stream::iter(...).map(fetch).buffered(N)` limits concurrency per provider.
 - **Browser emulation**: `client.rs` sets Chrome User-Agent and Client Hints headers to avoid bot detection from GitHub and Reddit.
-- **Retry with backoff**: `reqwest-retry` middleware retries transient failures up to 3 times with exponential backoff.
+- **No request retries**: a failed fetch fails fast — provider errors are absorbed by the `keep_if_empty` pattern, which preserves the last good snapshot, so retrying (and hammering rate-limited endpoints like Reddit) buys nothing.
 - **Vendored OpenSSL**: Reddit and GitHub fingerprint TLS and block rustls. The `native-tls-vendored` feature statically links OpenSSL into the binary.
 
 ## Conventions

@@ -1,11 +1,9 @@
 use std::time::Duration;
 
 use reqwest::header::{
-    ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, HeaderMap, HeaderValue, UPGRADE_INSECURE_REQUESTS,
-    USER_AGENT,
+    ACCEPT, ACCEPT_LANGUAGE, HeaderMap, HeaderValue, UPGRADE_INSECURE_REQUESTS, USER_AGENT,
 };
 use reqwest_middleware::ClientBuilder;
-use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
 use reqwest_tracing::TracingMiddleware;
 use tracing::info;
 
@@ -13,8 +11,8 @@ use crate::config;
 
 pub type Client = reqwest_middleware::ClientWithMiddleware;
 
-/// Chrome 145 on Windows 10 — the single most common browser/OS combination.
-const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36";
+/// Chrome 149 on Windows 11 — the single most common browser/OS combination.
+const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
 pub fn build_client() -> Client {
     let mut builder = reqwest::Client::builder()
@@ -31,15 +29,12 @@ pub fn build_client() -> Client {
 
     let raw_client = builder.build().expect("failed to build HTTP client");
 
-    let retry_policy = ExponentialBackoff::builder().build_with_max_retries(config::MAX_RETRIES);
-
     ClientBuilder::new(raw_client)
         .with(TracingMiddleware::default())
-        .with(RetryTransientMiddleware::new_with_policy(retry_policy))
         .build()
 }
 
-/// Emulates Chrome 145 on Windows — header names and values match a real
+/// Emulates Chrome 149 on Windows — header names and values match a real
 /// Chrome navigation request captured from DevTools.
 fn chrome_headers() -> HeaderMap {
     let mut h = HeaderMap::new();
@@ -49,13 +44,12 @@ fn chrome_headers() -> HeaderMap {
         HeaderValue::from_static("text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"),
     );
     h.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
-    h.insert(CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
     h.insert(UPGRADE_INSECURE_REQUESTS, HeaderValue::from_static("1"));
     // Client Hints
     h.insert(
         "Sec-Ch-Ua",
         HeaderValue::from_static(
-            "\"Chromium\";v=\"145\", \"Not_A Brand\";v=\"24\", \"Google Chrome\";v=\"145\"",
+            "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
         ),
     );
     h.insert("Sec-Ch-Ua-Mobile", HeaderValue::from_static("?0"));

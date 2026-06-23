@@ -2,10 +2,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use crate::client::Client;
-use futures::stream::{self, StreamExt};
 use scraper::{Html, Selector};
 
-use super::FetchError;
+use super::{FetchError, jittered_delay, text};
 use crate::config;
 
 struct Selectors {
@@ -88,31 +87,31 @@ pub async fn fetch_all_trending(client: &Client) -> GhTrending {
             .map(|&(name, slug)| (name, Some(slug))),
     );
 
-    let futs: Vec<_> = languages
-        .flat_map(|(name, slug)| {
-            config::GITHUB_PERIODS.iter().map(move |&period| {
-                let client = client.clone();
-                async move {
-                    let repos = fetch_trending(&client, period, slug)
-                        .await
-                        .unwrap_or_else(|e| {
-                            tracing::warn!(error = %e, "github trending {period} {name}");
-                            Vec::new()
-                        });
-                    ((period.to_string(), name.to_string()), repos)
-                }
-            })
-        })
-        .collect();
-
-    stream::iter(futs)
-        .buffered(config::GITHUB_CONCURRENT_FETCHES)
-        .collect()
-        .await
-}
-
-fn text(el: scraper::ElementRef) -> String {
-    el.text().collect::<String>().trim().to_string()
+    // Jitter-paced fetches: a randomized gap between requests to avoid tripping
+    // GitHub's secondary limits on bursty unauthenticated scraping, and to avoid
+    // a fixed (bot-detectable) cadence. No delay before the first request.
+    let mut trending = GhTrending::new();
+    let mut first = true;
+    for (name, slug) in languages {
+        for &period in config::GITHUB_PERIODS {
+            if !first {
+                jittered_delay(
+                    config::GITHUB_REQUEST_INTERVAL_MS,
+                    config::GITHUB_REQUEST_JITTER_MS,
+                )
+                .await;
+            }
+            first = false;
+            let repos = fetch_trending(client, period, slug)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "github trending {period} {name}");
+                    Vec::new()
+                });
+            trending.insert((period.to_string(), name.to_string()), repos);
+        }
+    }
+    trending
 }
 
 fn parse_num(s: &str) -> u64 {

@@ -1,11 +1,8 @@
 [tools]
-rust = { version = "1.93", components = "rust-analyzer" }
-tombi = "0.7"
-prek = "0.3"
-biome = "2"
-cargo-binstall = "1"
-"cargo:cargo-edit" = "0.13"
-"cargo:cargo-machete" = "0.9"
+rust = { version = "1.96", components = "rust-analyzer" }
+tombi = "1.1"
+prek = "0.4"
+biome = "2.5"
 
 [settings]
 experimental = true
