@@ -11,30 +11,62 @@ use crate::config;
 
 pub type Client = reqwest_middleware::ClientWithMiddleware;
 
-/// Chrome 149 on Windows 11 — the single most common browser/OS combination.
-const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+/// Chrome 152 on Windows 11 — the single most common browser/OS combination.
+const CHROME_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
-pub fn build_client() -> Client {
-    let mut builder = reqwest::Client::builder()
+/// Reddit blocks datacenter ranges, so it may need a proxy. Hacker News and
+/// GitHub do not, and routing them through one only adds latency and risk.
+pub struct Clients {
+    pub direct: Client,
+    pub reddit: Client,
+}
+
+pub fn build_clients() -> Clients {
+    // no_proxy() is load-bearing: reqwest applies HTTPS_PROXY/ALL_PROXY from the
+    // environment unless it is switched off (auto_sys_proxy defaults to true).
+    let direct = wrap(
+        base_builder()
+            .no_proxy()
+            .build()
+            .expect("failed to build HTTP client"),
+    );
+
+    let reddit = match config::reddit_proxy() {
+        Some(url) => {
+            info!("reddit proxy: {}", mask_credentials(&url));
+            let proxy = reqwest::Proxy::all(&url)
+                .unwrap_or_else(|e| panic!("invalid REDDIT_PROXY {}: {e}", mask_credentials(&url)));
+            // .proxy() also clears auto_sys_proxy, so the environment is ignored here too.
+            wrap(
+                base_builder()
+                    .proxy(proxy)
+                    .build()
+                    .expect("failed to build Reddit HTTP client"),
+            )
+        }
+        None => {
+            info!("reddit proxy: none");
+            direct.clone()
+        }
+    };
+
+    Clients { direct, reddit }
+}
+
+fn base_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
         .timeout(Duration::from_secs(config::REQUEST_TIMEOUT_SECS))
         .cookie_store(true)
-        .default_headers(chrome_headers());
+        .default_headers(chrome_headers())
+}
 
-    if let Some(url) = proxy_url() {
-        info!("using proxy: {}", mask_credentials(&url));
-        let proxy = reqwest::Proxy::all(&url)
-            .unwrap_or_else(|e| panic!("invalid proxy URL {}: {e}", mask_credentials(&url)));
-        builder = builder.proxy(proxy);
-    }
-
-    let raw_client = builder.build().expect("failed to build HTTP client");
-
-    ClientBuilder::new(raw_client)
+fn wrap(client: reqwest::Client) -> Client {
+    ClientBuilder::new(client)
         .with(TracingMiddleware::default())
         .build()
 }
 
-/// Emulates Chrome 149 on Windows — header names and values match a real
+/// Emulates Chrome 152 on Windows — header names and values match a real
 /// Chrome navigation request captured from DevTools.
 fn chrome_headers() -> HeaderMap {
     let mut h = HeaderMap::new();
@@ -49,7 +81,7 @@ fn chrome_headers() -> HeaderMap {
     h.insert(
         "Sec-Ch-Ua",
         HeaderValue::from_static(
-            "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\"",
+            "\"Google Chrome\";v=\"152\", \"Chromium\";v=\"152\", \"Not)A;Brand\";v=\"24\"",
         ),
     );
     h.insert("Sec-Ch-Ua-Mobile", HeaderValue::from_static("?0"));
@@ -64,13 +96,6 @@ fn chrome_headers() -> HeaderMap {
     h.insert("Sec-Fetch-User", HeaderValue::from_static("?1"));
     h.insert("Priority", HeaderValue::from_static("u=0, i"));
     h
-}
-
-fn proxy_url() -> Option<String> {
-    std::env::var("HTTPS_PROXY")
-        .or_else(|_| std::env::var("ALL_PROXY"))
-        .ok()
-        .filter(|s| !s.is_empty())
 }
 
 /// Masks credentials in a proxy URL for safe logging.

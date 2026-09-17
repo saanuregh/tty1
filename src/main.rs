@@ -1,6 +1,7 @@
 mod cache;
 mod client;
 mod config;
+mod csp;
 mod providers;
 mod render;
 mod routes;
@@ -18,12 +19,12 @@ async fn main() {
 
     let data = cache::new_shared_data();
     let html = cache::new_shared_html();
-    let client = client::build_client();
+    let clients = client::build_clients();
 
     tokio::spawn(worker::run_scraper(
         data.clone(),
         html.clone(),
-        client,
+        clients,
         Duration::from_secs(config::SCRAPE_INTERVAL_SECS),
         config::HN_STORIES_PER_PAGE,
     ));

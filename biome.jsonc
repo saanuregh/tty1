@@ -1,14 +1,25 @@
+// Must stay .jsonc: biome.json rejects comments and silently falls back to
+// defaults, which drops the .gitignore exclusion and lints all of target/.
 {
-	"$schema": "https://biomejs.dev/schemas/2.4.4/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
 	"files": {
-		"includes": ["src/static/**"]
+		"ignoreUnknown": true,
+		"includes": ["**", "!.claude"]
 	},
 	"formatter": {
 		"indentStyle": "tab"
 	},
 	"linter": {
 		"rules": {
-			"recommended": true,
+			"preset": "recommended",
+			"a11y": {
+				"noSvgWithoutTitle": "off"
+			},
 			"correctness": {
 				// JS files share global scope via include_str!() — not modules
 				"noUnusedVariables": "off",

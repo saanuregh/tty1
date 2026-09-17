@@ -4,10 +4,17 @@
 
 ```sh
 cargo run                  # dev server on :3000
-cargo test                 # live API tests (Reddit may 403)
+cargo test                 # unit tests only (fast)
+cargo test -- --ignored    # live API tests (Reddit may 403)
 cargo build --release      # optimized binary (LTO + strip + oz)
 docker compose up -d       # build and run with docker compose
 ```
+
+Task runner and tool versions live in `.mise.toml`. `mise run lint` and
+`mise run fmt-check` are what `.pre-commit-config.yaml` invokes, so use those
+before committing. Biome config is `biome.jsonc` — it must keep the `.jsonc`
+extension, because `biome.json` rejects comments and silently falls back to
+defaults.
 
 Set `RUST_LOG=tty1=debug,info` for verbose logging.
 
@@ -19,16 +26,16 @@ All optional — the app runs with sensible defaults and no configuration:
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
 | `RUST_LOG` | `info` | Log verbosity (e.g. `tty1=debug,info`) |
-| `HTTPS_PROXY` | — | Proxy URL (http/https/socks5/socks5h) |
-| `ALL_PROXY` | — | Fallback proxy if `HTTPS_PROXY` not set |
+| `REDDIT_PROXY` | — | Proxy URL for Reddit requests only (http/https/socks5/socks5h) |
 
 ## Project Structure
 
 ```
 src/
   main.rs          # server setup, routing, signal handling
-  routes.rs        # HTTP handlers (index, settings, favicon, icon, manifest, sw.js, api/health)
-  config.rs        # all constants (ports, intervals, URLs, subreddits, languages)
+  routes.rs        # HTTP handlers (index, settings, favicon, icon, manifest, sw.js, api/health, api/version)
+  config.rs        # all constants (ports, intervals, URLs, subreddits, languages) + PORT/REDDIT_PROXY env
+  csp.rs           # CSP header: SHA-256 hashes of every inline script, built once at startup
   cache.rs         # ArcSwap-backed shared state, compression (gzip/zstd), ETag
   worker.rs        # background scraper (30 min) and HTML refresher (1 min)
   client.rs        # HTTP client (tracing, browser emulation, proxy support)
@@ -59,7 +66,9 @@ src/
 
 - **ArcSwap for lock-free reads**: `SharedData` and `SharedHtml` use `Arc<ArcSwap<T>>` so HTTP handlers never block on writer locks. Background tasks atomically swap in new snapshots.
 - **Pre-rendered + pre-compressed HTML**: The render step runs on a blocking Tokio task, produces HTML once, then compresses into gzip and zstd variants stored in `HtmlSnapshot`. Request handlers just pick the right variant.
-- **Independent provider failure**: All three providers run via `tokio::join!`. If one fails, its data stays unchanged (`keep_if_empty` pattern). Errors are logged, not propagated.
+- **Per-key last-good data**: providers return `HashMap<K, Result<Vec<V>, FetchError>>`. `worker::merge_keyed` takes fresh data per key and retains the previous snapshot's value for any key that errored, so one dead subreddit never blanks a panel. An empty `Ok` is real data; a page that loads but yields no rows reports `FetchError::EmptyPage` instead. Reddit's merged `"all"` view is derived after the merge (`reddit::build_all_view`) so it draws on retained data too.
+- **Reddit-only proxy**: `client::build_clients` returns a direct client and a Reddit client. The direct client calls `.no_proxy()` because reqwest otherwise applies `HTTPS_PROXY` from the environment (`auto_sys_proxy` defaults to true). Only `REDDIT_PROXY` is read.
+- **Auto-update without a reload**: `app.js` polls `/api/version` on an interval, on tab focus, and on `online`, then swaps `.dashboard` in place when `last_fetched` advances. `sw.js` intercepts `/` only when `request.mode === "navigate"`, so the poll is never answered from the service worker cache.
 - **Batched concurrent fetching**: `futures::stream::iter(...).map(fetch).buffered(N)` limits concurrency per provider.
 - **Browser emulation**: `client.rs` sets Chrome User-Agent and Client Hints headers to avoid bot detection from GitHub and Reddit.
 - **No request retries**: a failed fetch fails fast — provider errors are absorbed by the `keep_if_empty` pattern, which preserves the last good snapshot, so retrying (and hammering rate-limited endpoints like Reddit) buys nothing.
@@ -67,17 +76,17 @@ src/
 
 ## Conventions
 
-- Config is compile-time constants in `config.rs` — only PORT and proxy are read from env
+- Config is compile-time constants in `config.rs` — only `PORT` and `REDDIT_PROXY` are read from env, and `config.rs` is the only file that reads the environment
 - HTML is built with Maud macros (compile-time checked), not string templates
-- Frontend is vanilla JS (~735 lines across 3 files) — no build step, no framework
+- Frontend is vanilla JS — no build step, no framework
 - CSS is split by concern (common/dashboard/settings) and inlined into each page's HTML response
-- Provider tests make live HTTP requests (not mocked)
-- Security headers (X-Frame-Options, CSP, etc.) are applied via middleware in `routes.rs`
+- Provider tests make live HTTP requests (not mocked) and are `#[ignore = "live HTTP"]` so the default run stays fast; parsing and merge logic is covered by unit tests
+- Security headers (X-Frame-Options, CSP, etc.) are applied via middleware in `routes.rs`. The CSP value is built in `csp.rs`; `style-src` keeps `'unsafe-inline'` and carries no hash on purpose, because a hash in a directive makes browsers ignore `'unsafe-inline'` there and the language-colour dot writes a style attribute that no hash can cover.
 
 ## Common Tasks
 
 - **Add a subreddit**: append to `REDDIT_SUBREDDITS` in `config.rs`
 - **Add a GitHub language**: append `("Display Name", "url-slug")` to `GITHUB_LANGUAGES` in `config.rs`
-- **Add a new HN page**: append `("label", "api_endpoint")` to `HN_PAGES` in `config.rs`, add UI filter in `render.rs`
+- **Add a new HN page**: append `("label", "api_endpoint")` to `HN_PAGES` in `config.rs`, add UI filter in `render/dashboard.rs`
 - **Change scrape interval**: update `SCRAPE_INTERVAL_SECS` in `config.rs`
-- **Add a new provider**: create `src/providers/new.rs`, add data type to `DataSnapshot` in `cache.rs`, add fetch call to `scrape_all` in `worker.rs`, add panel in `render.rs`
+- **Add a new provider**: create `src/providers/new.rs` returning `HashMap<K, Result<Vec<T>, FetchError>>`, add the stored type to `DataSnapshot` in `cache.rs`, add the fetch and a `merge_keyed` call to `fetch_and_update` in `worker.rs`, add the panel in `render/dashboard.rs`

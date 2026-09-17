@@ -36,6 +36,9 @@ static SELECTORS: LazyLock<Option<Selectors>> = LazyLock::new(|| {
 /// Key: (period, language) e.g. ("daily", "all"), ("weekly", "Rust")
 pub type GhTrending = HashMap<(String, String), Vec<TrendingRepo>>;
 
+/// What a fetch cycle returns before it is merged with the previous snapshot.
+pub type GhFetch = HashMap<(String, String), Result<Vec<TrendingRepo>, FetchError>>;
+
 #[derive(Debug, Clone)]
 pub struct TrendingRepo {
     pub author: String,
@@ -71,11 +74,11 @@ pub async fn fetch_trending(
         .await?;
 
     // spawn_blocking: scraper HTML parsing is CPU-bound.
-    let repos = tokio::task::spawn_blocking(move || parse_trending_html(&html_text)).await?;
+    let repos = tokio::task::spawn_blocking(move || parse_trending_html(&html_text)).await??;
     Ok(repos)
 }
 
-pub async fn fetch_all_trending(client: &Client) -> GhTrending {
+pub async fn fetch_all_trending(client: &Client) -> GhFetch {
     tracing::info!(
         languages = config::GITHUB_LANGUAGES.len(),
         "github: fetching"
@@ -90,7 +93,7 @@ pub async fn fetch_all_trending(client: &Client) -> GhTrending {
     // Jitter-paced fetches: a randomized gap between requests to avoid tripping
     // GitHub's secondary limits on bursty unauthenticated scraping, and to avoid
     // a fixed (bot-detectable) cadence. No delay before the first request.
-    let mut trending = GhTrending::new();
+    let mut trending = GhFetch::new();
     let mut first = true;
     for (name, slug) in languages {
         for &period in config::GITHUB_PERIODS {
@@ -102,13 +105,8 @@ pub async fn fetch_all_trending(client: &Client) -> GhTrending {
                 .await;
             }
             first = false;
-            let repos = fetch_trending(client, period, slug)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(error = %e, "github trending {period} {name}");
-                    Vec::new()
-                });
-            trending.insert((period.to_string(), name.to_string()), repos);
+            let result = fetch_trending(client, period, slug).await;
+            trending.insert((period.to_string(), name.to_string()), result);
         }
     }
     trending
@@ -124,10 +122,10 @@ fn parse_num(s: &str) -> u64 {
     })
 }
 
-fn parse_trending_html(html: &str) -> Vec<TrendingRepo> {
+fn parse_trending_html(html: &str) -> Result<Vec<TrendingRepo>, FetchError> {
     let Some(sel) = SELECTORS.as_ref() else {
         tracing::error!("CSS selectors failed to parse");
-        return Vec::new();
+        return Err(FetchError::EmptyPage);
     };
 
     let document = Html::parse_document(html);
@@ -140,7 +138,7 @@ fn parse_trending_html(html: &str) -> Vec<TrendingRepo> {
             html_len = html.len(),
             "github: 0 articles matched on non-empty page — CSS selectors may be stale"
         );
-        return repos;
+        return Err(FetchError::EmptyPage);
     }
 
     for article in document.select(&sel.article) {
@@ -196,19 +194,20 @@ fn parse_trending_html(html: &str) -> Vec<TrendingRepo> {
         });
     }
 
-    repos
+    Ok(repos)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::tests::test_client;
+    use crate::providers::tests::test_clients;
 
     #[tokio::test]
+    #[ignore = "live HTTP"]
     async fn fetch_trending_all_periods() {
-        let client = test_client();
+        let clients = test_clients();
         for &period in config::GITHUB_PERIODS {
-            let repos = fetch_trending(&client, period, None).await.unwrap();
+            let repos = fetch_trending(&clients.direct, period, None).await.unwrap();
             assert!(!repos.is_empty(), "{period} trending returned no repos");
             for repo in &repos {
                 assert!(!repo.author.is_empty());
@@ -217,5 +216,20 @@ mod tests {
                 assert!(repo.stars > 0 || repo.forks > 0, "missing stars/forks");
             }
         }
+    }
+
+    #[test]
+    fn blocked_page_is_an_error() {
+        let html = format!("<html><body>{}</body></html>", "x".repeat(1200));
+        assert!(matches!(
+            parse_trending_html(&html),
+            Err(FetchError::EmptyPage)
+        ));
+    }
+
+    #[test]
+    fn short_empty_page_is_not_an_error() {
+        let repos = parse_trending_html("<html><body></body></html>").unwrap();
+        assert!(repos.is_empty());
     }
 }

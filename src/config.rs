@@ -8,10 +8,20 @@ pub fn port() -> u16 {
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_PORT)
 }
+/// Proxy for Reddit requests only. Hacker News and GitHub always go direct.
+pub fn reddit_proxy() -> Option<String> {
+    proxy_from(std::env::var("REDDIT_PROXY").ok())
+}
+
+/// Split from `reddit_proxy` so it is testable without mutating process env.
+fn proxy_from(value: Option<String>) -> Option<String> {
+    value.filter(|s| !s.trim().is_empty())
+}
+
 pub const FILTER_ALL: &str = "all";
 
 // -- Server --
-pub const SCRAPE_INTERVAL_SECS: u64 = 1800;
+pub const SCRAPE_INTERVAL_SECS: u64 = 28800;
 pub const SCRAPE_JITTER_SECS: u64 = 300;
 pub const HTML_REFRESH_SECS: u64 = 60;
 pub const LOADING_PAGE_TTL_SECS: u64 = 3;
@@ -105,3 +115,23 @@ pub const REDDIT_REQUEST_INTERVAL_MS: u64 = 1000;
 pub const REDDIT_REQUEST_JITTER_MS: u64 = 300;
 pub const REDDIT_POSTS_PER_SUB: usize = 30;
 pub const REDDIT_ALL_VIEW_LIMIT: usize = 100;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blank_proxy_is_none() {
+        assert_eq!(proxy_from(None), None);
+        assert_eq!(proxy_from(Some(String::new())), None);
+        assert_eq!(proxy_from(Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn set_proxy_is_some() {
+        assert_eq!(
+            proxy_from(Some("socks5h://h:1080".to_string())),
+            Some("socks5h://h:1080".to_string())
+        );
+    }
+}

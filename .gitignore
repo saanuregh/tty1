@@ -16,6 +16,8 @@ Thumbs.db
 # Environment
 .env
 .env.*
+# .env.* would otherwise swallow the one env file that must ship.
+!.env.example
 
 # Docker
 docker-compose.override.yml

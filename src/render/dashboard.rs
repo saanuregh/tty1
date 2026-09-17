@@ -90,7 +90,7 @@ pub fn render_page(
             span.sep { (SEP) }
             a.settings-link href="/settings" { "settings" }
         }
-        script { (PreEscaped(include_str!("../static/common.js"))) (PreEscaped(include_str!("../static/app.js"))) }
+        script { (PreEscaped(super::COMMON_JS)) (PreEscaped(super::APP_JS)) }
     }).into_string()
 }
 

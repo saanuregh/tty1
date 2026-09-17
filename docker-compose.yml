@@ -5,4 +5,6 @@ services:
       - "3000:3000"
     environment:
       - RUST_LOG=info
+      # Reddit blocks many datacenter ranges. Proxies Reddit only.
+      # - REDDIT_PROXY=socks5h://user:pass@host:1080
     restart: unless-stopped

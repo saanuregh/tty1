@@ -168,7 +168,7 @@ pub fn render_settings_page() -> String {
                     }
                 }
             }
-            script { (PreEscaped(include_str!("../static/common.js"))) (PreEscaped(include_str!("../static/settings.js"))) }
+            script { (PreEscaped(super::COMMON_JS)) (PreEscaped(super::SETTINGS_JS)) }
         },
     )
     .into_string()

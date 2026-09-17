@@ -348,19 +348,44 @@
 		if (ft?.dataset.ts) ft.textContent = timeAgo(parseInt(ft.dataset.ts, 10));
 	}
 
-	let etag = "";
-	async function autoRefresh() {
-		const headers = {};
-		if (etag) headers["If-None-Match"] = etag;
-		const res = await fetch("/", { headers }).catch(() => null);
-		if (!res || res.status === 304) return;
-		etag = res.headers.get("etag") || "";
+	const POLL_INTERVAL_MS = 60000;
+	const POLL_THROTTLE_MS = 5000;
+	let lastPollAt = 0;
+
+	function currentDataTs() {
+		const ft = $(".last-updated-time");
+		return ft?.dataset.ts ? parseInt(ft.dataset.ts, 10) : 0;
+	}
+
+	// The dashboard already renders last_fetched into .last-updated-time, so the
+	// poll compares against the DOM and needs no client-side etag bookkeeping.
+	async function pollVersion() {
+		const now = Date.now();
+		if (now - lastPollAt < POLL_THROTTLE_MS) return;
+		lastPollAt = now;
+
+		const res = await fetch("/api/version", { cache: "no-store" }).catch(
+			() => null,
+		);
+		if (!res?.ok) return;
+		const data = await res.json().catch(() => null);
+		if (!data) return;
+		if (data.last_fetched > currentDataTs()) await swapDashboard();
+	}
+
+	async function swapDashboard() {
+		const res = await fetch("/", { cache: "no-store" }).catch(() => null);
+		if (!res?.ok) return;
 		const html = await res.text();
 		const doc = new DOMParser().parseFromString(html, "text/html");
 		const fresh = doc.querySelector(".dashboard");
 		const current = $(".dashboard");
 		if (!fresh || !current) return;
+
 		current.replaceChildren(...fresh.childNodes);
+		// replaceChildren destroys the focused node; the index would dangle.
+		clearFocus();
+		focusedIdx = -1;
 		applyProfile();
 		applyFilters();
 		refreshTimes();
@@ -377,7 +402,11 @@
 	}
 
 	setInterval(refreshTimes, 60000);
-	setInterval(autoRefresh, 900000);
+	setInterval(pollVersion, POLL_INTERVAL_MS);
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "visible") pollVersion();
+	});
+	window.addEventListener("online", pollVersion);
 
 	const banner = $(".offline-banner");
 	function setOffline(offline) {

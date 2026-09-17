@@ -3,6 +3,12 @@ use maud::{Markup, PreEscaped, html};
 use super::utils::SEP;
 use crate::config;
 
+/// Runs before first paint to avoid a flash of the wrong theme.
+pub const THEME_BOOTSTRAP: &str = "document.documentElement.className='js';try{var t=JSON.parse(localStorage.getItem('tty1')||'{}').theme||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');document.documentElement.dataset.theme=t}catch(e){}";
+
+pub const SW_REGISTER: &str =
+    "if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}";
+
 pub fn page_shell(page_css: &str, content: Markup) -> Markup {
     html! {
         (maud::DOCTYPE)
@@ -18,16 +24,14 @@ pub fn page_shell(page_css: &str, content: Markup) -> Markup {
                 link rel="icon" type="image/svg+xml" href="/favicon.svg";
                 link rel="apple-touch-icon" href="/icon.svg";
                 link rel="manifest" href="/manifest.json";
-                script { (PreEscaped("document.documentElement.className='js';try{var t=JSON.parse(localStorage.getItem('tty1')||'{}').theme||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');document.documentElement.dataset.theme=t}catch(e){}")) }
+                script { (PreEscaped(THEME_BOOTSTRAP)) }
                 style { (PreEscaped(include_str!("../static/common.css"))) (PreEscaped(page_css)) }
             }
             body {
                 a.skip-link href="#main-content" { "Skip to content" }
                 .offline-banner.is-hidden { "offline \u{00b7} cached content" }
                 (content)
-                script {
-                    (PreEscaped("if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}"))
-                }
+                script { (PreEscaped(SW_REGISTER)) }
             }
         }
     }

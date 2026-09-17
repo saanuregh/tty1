@@ -1,8 +1,8 @@
 [package]
 name = "tty1"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.98"
 description = "Fast, minimal dashboard aggregating trending content from Hacker News, GitHub, and Reddit"
 license = "MIT"
 
@@ -27,24 +27,25 @@ reqwest = {
     "gzip",
     "json",
     "native-tls-vendored",
-    "socks"
-  ]
+    "socks",
+  ],
 }
 reqwest-middleware = "0.5"
 reqwest-tracing = "0.7"
 scraper = { version = "0.27", default-features = false }
-# rc: /api/data returns Json<Arc<DataSnapshot>>, which requires Arc serialization support.
-serde = { version = "1", features = ["derive", "rc"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# CSP script hashes. Base64 is a local helper, not a second dependency.
+sha2 = "0.11"
 thiserror = "2"
 tokio = {
   version = "1",
-  features = ["macros", "net", "rt-multi-thread", "signal", "time"]
+  features = ["macros", "net", "rt-multi-thread", "signal", "time"],
 }
 tower = { version = "0.5", features = ["timeout"] }
 tower-http = {
   version = "0.7",
-  features = ["compression-gzip", "compression-zstd"]
+  features = ["compression-gzip", "compression-zstd"],
 }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

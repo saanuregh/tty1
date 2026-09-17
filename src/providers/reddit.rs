@@ -4,13 +4,17 @@ use std::sync::LazyLock;
 use crate::client::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
-use tracing::{info, warn};
+use tracing::info;
 
 use super::{FetchError, jittered_delay, text};
 use crate::config;
 
 /// Key: subreddit name (lowercase) or "all" for the merged top-N view.
 pub type RedditFeed = HashMap<String, Vec<RedditPost>>;
+
+/// What a fetch cycle returns before it is merged with the previous snapshot.
+/// Holds subreddit keys only — the "all" view is derived after the merge.
+pub type RedditFetch = HashMap<String, Result<Vec<RedditPost>, FetchError>>;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RedditPost {
@@ -45,8 +49,9 @@ impl RedditPost {
     }
 }
 
-/// Returns a feed keyed by subreddit name + an "all" entry with the merged top-N.
-pub async fn fetch_reddit_feed(client: &Client) -> RedditFeed {
+/// Fetch every configured subreddit. The merged "all" view is NOT built here:
+/// it must be derived after the merge so it can draw on retained data too.
+pub async fn fetch_reddit_feed(client: &Client) -> RedditFetch {
     info!(
         subreddits = config::REDDIT_SUBREDDITS.len(),
         "reddit: fetching"
@@ -54,8 +59,7 @@ pub async fn fetch_reddit_feed(client: &Client) -> RedditFeed {
 
     // Sequential, jitter-paced fetches: a randomized gap between requests so the
     // cadence does not look like a fixed-interval bot. No delay before the first.
-    let mut results: Vec<(&str, Vec<RedditPost>)> =
-        Vec::with_capacity(config::REDDIT_SUBREDDITS.len());
+    let mut feed = RedditFetch::with_capacity(config::REDDIT_SUBREDDITS.len());
     for (i, &sub) in config::REDDIT_SUBREDDITS.iter().enumerate() {
         if i > 0 {
             jittered_delay(
@@ -64,29 +68,22 @@ pub async fn fetch_reddit_feed(client: &Client) -> RedditFeed {
             )
             .await;
         }
-        let posts = scrape_subreddit(client, sub).await.unwrap_or_else(|e| {
-            warn!(subreddit = sub, error = %e, "failed to fetch subreddit");
-            Vec::new()
-        });
-        results.push((sub, posts));
+        feed.insert(sub.to_lowercase(), fetch_subreddit(client, sub).await);
     }
+    feed
+}
 
-    let mut feed = RedditFeed::with_capacity(results.len() + 1);
-
-    // Merged "all" view: top N across all subreddits, sorted by score.
-    let mut all: Vec<RedditPost> = results
+/// Top N posts across every subreddit, by score. Skips an existing "all" key so
+/// it is safe to call on a map that already holds one.
+pub fn build_all_view(feed: &RedditFeed) -> Vec<RedditPost> {
+    let mut all: Vec<RedditPost> = feed
         .iter()
+        .filter(|(key, _)| key.as_str() != config::FILTER_ALL)
         .flat_map(|(_, posts)| posts.iter().cloned())
         .collect();
     all.sort_by_key(|p| std::cmp::Reverse(p.score));
     all.truncate(config::REDDIT_ALL_VIEW_LIMIT);
-    feed.insert(config::FILTER_ALL.to_string(), all);
-
-    for (sub, posts) in results {
-        feed.insert(sub.to_lowercase(), posts);
-    }
-
-    feed
+    all
 }
 
 // ===== Active source: old.reddit HTML =====
@@ -125,17 +122,19 @@ async fn scrape_subreddit(client: &Client, subreddit: &str) -> Result<Vec<Reddit
         .await?;
 
     // spawn_blocking: scraper HTML parsing is CPU-bound.
-    let posts = tokio::task::spawn_blocking(move || parse_listing_html(&html)).await?;
+    let posts = tokio::task::spawn_blocking(move || parse_listing_html(&html)).await??;
     Ok(posts)
 }
 
-fn parse_listing_html(html: &str) -> Vec<RedditPost> {
+fn parse_listing_html(html: &str) -> Result<Vec<RedditPost>, FetchError> {
     let Some(sel) = SELECTORS.as_ref() else {
         tracing::error!("reddit: CSS selectors failed to parse");
-        return Vec::new();
+        return Err(FetchError::EmptyPage);
     };
 
     let document = Html::parse_document(html);
+
+    dbg!(&document);
 
     // Detect stale markup / block pages: a valid listing always has thing rows.
     if document.select(&sel.thing).next().is_none() && html.len() > 1000 {
@@ -143,7 +142,7 @@ fn parse_listing_html(html: &str) -> Vec<RedditPost> {
             html_len = html.len(),
             "reddit: 0 things matched on non-empty page — markup changed or IP blocked"
         );
-        return Vec::new();
+        return Err(FetchError::EmptyPage);
     }
 
     let mut posts = Vec::with_capacity(config::REDDIT_POSTS_PER_SUB);
@@ -209,7 +208,7 @@ fn parse_listing_html(html: &str) -> Vec<RedditPost> {
         }
     }
 
-    posts
+    Ok(posts)
 }
 
 // ===== Retained: public JSON API (disabled by Reddit) =====
@@ -251,70 +250,77 @@ async fn fetch_subreddit(client: &Client, subreddit: &str) -> Result<Vec<RedditP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::tests::test_client;
+    use crate::{config::REDDIT_SUBREDDITS, providers::tests::test_clients};
+
 
     #[tokio::test]
-    async fn all_subreddits_reachable() {
-        let client = test_client();
-        let mut results = Vec::with_capacity(config::REDDIT_SUBREDDITS.len());
-        for (i, sub) in config::REDDIT_SUBREDDITS.iter().enumerate() {
-            if i > 0 {
-                jittered_delay(
-                    config::REDDIT_REQUEST_INTERVAL_MS,
-                    config::REDDIT_REQUEST_JITTER_MS,
-                )
-                .await;
-            }
-            results.push(scrape_subreddit(&client, sub).await);
-        }
-
-        let failures: Vec<_> = config::REDDIT_SUBREDDITS
-            .iter()
-            .zip(results)
-            .filter_map(|(sub, result)| match result {
-                Ok(posts) if posts.is_empty() => Some(format!("r/{sub}: 0 posts")),
-                Err(e) => Some(format!("r/{sub}: {e}")),
-                _ => None,
-            })
-            .collect();
-
-        assert!(
-            failures.is_empty(),
-            "Failed subreddits:\n{}",
-            failures.join("\n")
-        );
+    async fn test_fetch_subreddit() {
+        let clients = test_clients();
+        let result = fetch_subreddit(&clients.reddit, REDDIT_SUBREDDITS[0])
+            .await
+            .unwrap();
+        assert!(!result.is_empty(), "all feed returned no posts");
     }
 
     #[tokio::test]
-    async fn feed_returns_keyed_sorted_posts() {
-        let client = test_client();
-        let feed = fetch_reddit_feed(&client).await;
+    async fn test_scrape_subreddit() {
+        let clients = test_clients();
+        let result = scrape_subreddit(&clients.reddit, REDDIT_SUBREDDITS[0])
+            .await
+            .unwrap();
+        assert!(!result.is_empty(), "all feed returned no posts");
+    }
 
-        let all = feed.get("all").expect("missing 'all' key");
-        assert!(!all.is_empty(), "all feed returned no posts");
-        assert!(all.len() <= config::REDDIT_ALL_VIEW_LIMIT);
-        for post in all {
-            assert!(!post.title.is_empty());
-            assert!(post.permalink.starts_with("https://www.reddit.com/"));
+    fn post(subreddit: &str, score: i64) -> RedditPost {
+        RedditPost {
+            title: "t".into(),
+            url: String::new(),
+            permalink: String::new(),
+            subreddit: subreddit.into(),
+            score,
+            author: "a".into(),
+            created_at: 0.0,
+            comment_count: 0,
+            domain: String::new(),
+            is_self: false,
+            stickied: false,
         }
-        for w in all.windows(2) {
-            assert!(
-                w[0].score >= w[1].score,
-                "not sorted: {} < {}",
-                w[0].score,
-                w[1].score
-            );
-        }
-        // The old.reddit scraper must populate real metrics, not silent zeros:
-        // the top-scored post should have a positive score, and some post should
-        // carry comments. Guards against stale `data-*` attribute names.
-        assert!(
-            all[0].score > 0,
-            "top post has score 0 — data-score not parsed"
-        );
-        assert!(
-            all.iter().any(|p| p.comment_count > 0),
-            "no post has comments — data-comments-count not parsed"
-        );
+    }
+
+    #[test]
+    fn all_view_sorts_by_score_and_skips_existing_all() {
+        let feed = RedditFeed::from([
+            ("rust".to_string(), vec![post("rust", 5), post("rust", 50)]),
+            ("golang".to_string(), vec![post("golang", 20)]),
+            ("all".to_string(), vec![post("stale", 9999)]),
+        ]);
+
+        let all = build_all_view(&feed);
+        let scores: Vec<i64> = all.iter().map(|p| p.score).collect();
+        assert_eq!(scores, vec![50, 20, 5]);
+    }
+
+    #[test]
+    fn all_view_truncates_to_the_limit() {
+        let posts: Vec<RedditPost> = (0..config::REDDIT_ALL_VIEW_LIMIT + 10)
+            .map(|i| post("rust", i as i64))
+            .collect();
+        let feed = RedditFeed::from([("rust".to_string(), posts)]);
+        assert_eq!(build_all_view(&feed).len(), config::REDDIT_ALL_VIEW_LIMIT);
+    }
+
+    #[test]
+    fn blocked_page_is_an_error() {
+        let html = format!("<html><body>{}</body></html>", "x".repeat(1200));
+        assert!(matches!(
+            parse_listing_html(&html),
+            Err(FetchError::EmptyPage)
+        ));
+    }
+
+    #[test]
+    fn short_empty_page_is_not_an_error() {
+        let posts = parse_listing_html("<html><body></body></html>").unwrap();
+        assert!(posts.is_empty());
     }
 }

@@ -8,6 +8,10 @@ pub enum FetchError {
     Http(#[from] reqwest_middleware::Error),
     #[error("background task panicked: {0}")]
     TaskPanic(#[from] tokio::task::JoinError),
+    /// A 200 response that yielded nothing. Distinct from a genuinely empty
+    /// listing: the caller keeps its previous data rather than blanking a panel.
+    #[error("page loaded but no rows matched — markup changed or IP blocked")]
+    EmptyPage,
 }
 
 /// Wrap raw reqwest errors through the middleware error type so `?` works on
@@ -34,7 +38,7 @@ pub(crate) fn text(el: scraper::ElementRef) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    pub fn test_client() -> crate::client::Client {
-        crate::client::build_client()
+    pub fn test_clients() -> crate::client::Clients {
+        crate::client::build_clients()
     }
 }

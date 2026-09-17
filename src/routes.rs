@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/settings", get(settings))
         .route("/api/health", get(api_health))
+        .route("/api/version", get(api_version))
         .route("/favicon.svg", get(favicon))
         .route("/icon.svg", get(app_icon))
         .route("/manifest.json", get(manifest))
@@ -63,6 +64,10 @@ async fn security_headers(request: Request, next: Next) -> Response {
         HeaderName::from_static("cross-origin-opener-policy"),
         HeaderValue::from_static("same-origin"),
     );
+    h.insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_str(&crate::csp::CSP_HEADER).expect("valid CSP header"),
+    );
     response
 }
 
@@ -71,7 +76,13 @@ async fn security_headers(request: Request, next: Next) -> Response {
 async fn index(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let snapshot = state.html.load();
     let max_age = snapshot.refresh_secs.to_string();
-    let cache_control = format!("public, max-age={max_age}");
+    // The loading page must never be cached: the service worker would serve it
+    // as the first paint long after real data arrived.
+    let cache_control = if snapshot.is_loading {
+        "no-store".to_string()
+    } else {
+        format!("public, max-age={max_age}")
+    };
 
     if let Some(r) = not_modified(&headers, &snapshot.etag, &cache_control) {
         return r;
@@ -124,6 +135,20 @@ async fn api_health(State(state): State<AppState>) -> (StatusCode, &'static str)
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "loading")
     }
+}
+
+/// Cheap poll target for the dashboard's auto-update. About 40 bytes, so a tab
+/// can check every minute without refetching the page.
+async fn api_version(State(state): State<AppState>) -> Response {
+    let last_fetched = state.data.load().last_fetched.timestamp();
+    let etag = state.html.load().etag.clone();
+    let body = serde_json::json!({ "last_fetched": last_fetched, "etag": etag }).to_string();
+
+    Response::builder()
+        .header(CONTENT_TYPE, "application/json")
+        .header(CACHE_CONTROL, "no-store")
+        .body(Body::from(body))
+        .expect("valid response")
 }
 
 // ── Static assets ───────────────────────────────────────────────────

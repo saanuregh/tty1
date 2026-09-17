@@ -1,6 +1,6 @@
 # tty1
 
-A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal JS (~735 lines, no framework), and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
+A fast, minimal dashboard that aggregates trending content from Hacker News, GitHub, and Reddit into a single page. Built in Rust with server-rendered HTML and no JavaScript framework. No tracking, no analytics, minimal vanilla JS with no build step, and full offline support — works as your browser homepage without any extension. Everything is served as a single server-rendered HTML page (~166 KB compressed).
 
 ![screenshot](.github/screenshot.png)
 
@@ -45,10 +45,11 @@ Uses a distroless base image with vendored OpenSSL — no system dependencies ne
 ### Testing
 
 ```sh
-cargo test
+cargo test              # unit tests only (fast)
+cargo test -- --ignored # live requests to HN, GitHub, and Reddit
 ```
 
-Tests make live requests to HN, GitHub, and Reddit APIs. Reddit tests may fail due to bot detection.
+The live tests are ignored by default so the normal test run stays fast and deterministic. Reddit can answer `403` or redirect to a login page from datacenter addresses.
 
 ## Environment Variables
 
@@ -58,8 +59,7 @@ All optional — the app runs with sensible defaults:
 |---|---|---|
 | `PORT` | `3000` | Server listen port |
 | `RUST_LOG` | `info` | Log verbosity (e.g. `tty1=debug,info`) |
-| `HTTPS_PROXY` | — | Proxy URL for outbound requests (http/https/socks5/socks5h) |
-| `ALL_PROXY` | — | Fallback proxy if `HTTPS_PROXY` not set |
+| `REDDIT_PROXY` | — | Proxy URL for Reddit requests only (http/https/socks5/socks5h) |
 
 ## API
 
@@ -68,21 +68,25 @@ All optional — the app runs with sensible defaults:
 | `GET /` | Dashboard HTML (pre-compressed, ETag support) |
 | `GET /settings` | Settings page (theme, panel order, filters) |
 | `GET /api/health` | `200` if data is loaded, `503` while still fetching |
+| `GET /api/version` | `last_fetched` and `etag` of the current snapshot, for the auto-update poll |
 
 ## Architecture
 
 Background workers scrape all three sources every 30 minutes and store the results in an `ArcSwap`-backed shared state. HTML is pre-rendered and pre-compressed (gzip + zstd) every 60 seconds. Incoming requests select the best encoding and return the cached response with ETag support — no rendering happens in the request path.
 
-Each provider fetches concurrently using buffered streams (HN: 10, GitHub: 6, Reddit: 3) and fails independently — one source going down doesn't affect the others. If a fetch returns empty results, the previous data is kept. Transient failures are retried up to 3 times with exponential backoff.
+The three providers run concurrently and fail independently. Failure is tracked per key — per HN page, per GitHub language and period, per subreddit — so a single dead subreddit keeps its previous posts instead of blanking the panel. A fetch that succeeds with no items is accepted as real data; a page that loads but yields no rows is reported as an error, because that means a block page or a stale selector. There are no retries: a failed fetch fails fast, and the retained snapshot covers it.
+
+The page updates itself. `app.js` polls `/api/version` every minute, on tab focus, and on reconnect, then swaps the dashboard in place when the snapshot advances.
 
 ```
 Axum server (:3000)
-  ├── GET /           → pre-compressed HTML from ArcSwap
-  ├── GET /settings   → settings page (rendered on request)
-  └── GET /api/health → 200/503 based on data availability
+  ├── GET /            → pre-compressed HTML from ArcSwap
+  ├── GET /settings    → settings page (rendered on request)
+  ├── GET /api/health  → 200/503 based on data availability
+  └── GET /api/version → snapshot timestamp + ETag for the client poll
 
 Background tasks (Tokio)
-  ├── Scraper (30 min) → HN API + GitHub HTML + Reddit API → ArcSwap
+  ├── Scraper (30 min) → HN API + GitHub HTML + Reddit HTML → merge per key → ArcSwap
   └── HTML refresh (1 min) → re-render timestamps → ArcSwap
 ```
 
