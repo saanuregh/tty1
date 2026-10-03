@@ -1,6 +1,7 @@
 pub mod github;
 pub mod hackernews;
 pub mod reddit;
+pub mod reddit_auth;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
@@ -12,6 +13,9 @@ pub enum FetchError {
     /// listing: the caller keeps its previous data rather than blanking a panel.
     #[error("page loaded but no rows matched — markup changed or IP blocked")]
     EmptyPage,
+    /// The Reddit token request failed this cycle; its error is logged once.
+    #[error("reddit token unavailable")]
+    TokenUnavailable,
 }
 
 /// Wrap raw reqwest errors through the middleware error type so `?` works on
@@ -36,9 +40,59 @@ pub(crate) fn text(el: scraper::ElementRef) -> String {
     el.text().collect::<String>().trim().to_string()
 }
 
+/// The error's message followed by each distinct cause, joined by ": ".
+/// reqwest's own message stops at "error sending request for url (…)"; the
+/// cause (timeout, connection reset, DNS, TLS) is only in the source chain.
+pub(crate) fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let text = cause.to_string();
+        // Wrappers often repeat their source's text; append only what is new.
+        if !message.contains(&text) {
+            message.push_str(": ");
+            message.push_str(&text);
+        }
+        source = cause.source();
+    }
+    message
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     pub fn test_clients() -> crate::client::Clients {
         crate::client::build_clients()
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("{message}")]
+    struct Wrapped {
+        message: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    }
+
+    #[test]
+    fn error_chain_appends_distinct_causes() {
+        let io = std::io::Error::new(std::io::ErrorKind::TimedOut, "operation timed out");
+        let inner = Wrapped {
+            message: "error sending request".into(),
+            source: Box::new(io),
+        };
+        // A wrapper that repeats its source's text, like FetchError::Http does.
+        let outer = Wrapped {
+            message: "HTTP request failed: error sending request".into(),
+            source: Box::new(inner),
+        };
+        assert_eq!(
+            super::error_chain(&outer),
+            "HTTP request failed: error sending request: operation timed out"
+        );
+    }
+
+    #[test]
+    fn error_chain_without_source_is_the_message() {
+        let io = std::io::Error::other("boom");
+        assert_eq!(super::error_chain(&io), "boom");
     }
 }

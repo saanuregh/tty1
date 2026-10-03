@@ -31,24 +31,26 @@ pub fn build_clients() -> Clients {
             .expect("failed to build HTTP client"),
     );
 
-    let reddit = match config::reddit_proxy() {
+    // Reddit is reached as the Android app, so its client carries no Chrome
+    // headers: the per-request device headers in `reddit_auth` are the only ones.
+    let reddit_builder = match config::reddit_proxy() {
         Some(url) => {
             info!("reddit proxy: {}", mask_credentials(&url));
             let proxy = reqwest::Proxy::all(&url)
                 .unwrap_or_else(|e| panic!("invalid REDDIT_PROXY {}: {e}", mask_credentials(&url)));
             // .proxy() also clears auto_sys_proxy, so the environment is ignored here too.
-            wrap(
-                base_builder()
-                    .proxy(proxy)
-                    .build()
-                    .expect("failed to build Reddit HTTP client"),
-            )
+            android_builder().proxy(proxy)
         }
         None => {
             info!("reddit proxy: none");
-            direct.clone()
+            android_builder().no_proxy()
         }
     };
+    let reddit = wrap(
+        reddit_builder
+            .build()
+            .expect("failed to build Reddit HTTP client"),
+    );
 
     Clients { direct, reddit }
 }
@@ -58,6 +60,10 @@ fn base_builder() -> reqwest::ClientBuilder {
         .timeout(Duration::from_secs(config::REQUEST_TIMEOUT_SECS))
         .cookie_store(true)
         .default_headers(chrome_headers())
+}
+
+fn android_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder().timeout(Duration::from_secs(config::REQUEST_TIMEOUT_SECS))
 }
 
 fn wrap(client: reqwest::Client) -> Client {

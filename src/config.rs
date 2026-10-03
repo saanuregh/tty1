@@ -109,10 +109,39 @@ pub const REDDIT_SUBREDDITS: &[&str] = &[
     "docker",
     "netsec",
 ];
-/// Reddit blocks bursty datacenter traffic; requests are paced one per this interval.
-pub const REDDIT_REQUEST_INTERVAL_MS: u64 = 1000;
-/// Randomize each gap by ±this so the cadence is not a fixed (bot-detectable) interval.
-pub const REDDIT_REQUEST_JITTER_MS: u64 = 300;
+/// Reddit runs its own loop, shorter than `SCRAPE_INTERVAL_SECS`, so a random
+/// subset per cycle still keeps every subreddit reasonably fresh.
+pub const REDDIT_SCRAPE_INTERVAL_SECS: u64 = 7200;
+pub const REDDIT_SCRAPE_JITTER_SECS: u64 = 900;
+/// Each cycle fetches a random share of `REDDIT_SUBREDDITS`, in this range.
+pub const REDDIT_SUBSET_MIN_PERCENT: u64 = 60;
+pub const REDDIT_SUBSET_MAX_PERCENT: u64 = 80;
+/// Gap between requests: uniform in this range, or occasionally a long
+/// "reading" pause, so the cadence looks like someone browsing.
+pub const REDDIT_GAP_MIN_MS: u64 = 2000;
+pub const REDDIT_GAP_MAX_MS: u64 = 8000;
+pub const REDDIT_LONG_PAUSE_PERCENT: u64 = 10;
+pub const REDDIT_LONG_PAUSE_MIN_MS: u64 = 20_000;
+pub const REDDIT_LONG_PAUSE_MAX_MS: u64 = 60_000;
+/// At or below this many remaining requests, wait for the rate-limit window to reset.
+pub const REDDIT_RATE_LIMIT_LOW: f64 = 10.0;
+pub const REDDIT_RATE_LIMIT_MAX_PAUSE_SECS: u64 = 600;
+/// Anonymous token flow of the official Android app (as used by Redlib).
+/// Reddit's public JSON and old.reddit both require a login now; this does not.
+pub const REDDIT_TOKEN_URL: &str = "https://www.reddit.com/auth/v2/oauth/access-token/loid";
+pub const REDDIT_API_BASE: &str = "https://oauth.reddit.com";
+pub const REDDIT_ANDROID_CLIENT_ID: &str = "ohXpoqrZYub1kg";
+pub const REDDIT_ANDROID_APP_VERSIONS: &[&str] = &[
+    "Version 2024.22.1/Build 1652272",
+    "Version 2024.23.1/Build 1665606",
+    "Version 2024.24.1/Build 1682520",
+];
+/// Tokens last 24 h; renew this long before expiry.
+pub const REDDIT_TOKEN_RENEW_MARGIN_SECS: u64 = 3600;
+/// After a failed renewal, keep the current token and retry after this long.
+pub const REDDIT_TOKEN_RENEW_RETRY_SECS: u64 = 600;
+/// Upper bound on a token's trusted lifetime, whatever `expires_in` says.
+pub const REDDIT_TOKEN_MAX_LIFETIME_SECS: u64 = 7 * 86_400;
 pub const REDDIT_POSTS_PER_SUB: usize = 30;
 pub const REDDIT_ALL_VIEW_LIMIT: usize = 100;
 

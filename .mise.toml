@@ -1,7 +1,7 @@
 [tools]
-rust = { version = "1.98", components = "rust-analyzer" }
-tombi = "1.4"
-prek = "0.4"
+rust = { version = "1.99", components = "rust-analyzer" }
+tombi = "1.7"
+prek = "0.5"
 biome = "2.5"
 
 [settings]

@@ -49,7 +49,7 @@ cargo test              # unit tests only (fast)
 cargo test -- --ignored # live requests to HN, GitHub, and Reddit
 ```
 
-The live tests are ignored by default so the normal test run stays fast and deterministic. Reddit can answer `403` or redirect to a login page from datacenter addresses.
+The live tests are ignored by default so the normal test run stays fast and deterministic. Reddit can answer `403` or `429` from datacenter addresses.
 
 ## Environment Variables
 
@@ -72,9 +72,9 @@ All optional — the app runs with sensible defaults:
 
 ## Architecture
 
-Background workers scrape all three sources every 30 minutes and store the results in an `ArcSwap`-backed shared state. HTML is pre-rendered and pre-compressed (gzip + zstd) every 60 seconds. Incoming requests select the best encoding and return the cached response with ETag support — no rendering happens in the request path.
+Background workers scrape Hacker News and GitHub every 8 hours and Reddit about every 2 hours, and store the results in an `ArcSwap`-backed shared state. HTML is pre-rendered and pre-compressed (gzip + zstd) every 60 seconds. Incoming requests select the best encoding and return the cached response with ETag support — no rendering happens in the request path.
 
-The three providers run concurrently and fail independently. Failure is tracked per key — per HN page, per GitHub language and period, per subreddit — so a single dead subreddit keeps its previous posts instead of blanking the panel. A fetch that succeeds with no items is accepted as real data; a page that loads but yields no rows is reported as an error, because that means a block page or a stale selector. There are no retries: a failed fetch fails fast, and the retained snapshot covers it.
+The providers run concurrently and fail independently. Failure is tracked per key — per HN page, per GitHub language and period, per subreddit — so a single dead subreddit keeps its previous posts instead of blanking the panel. A fetch that succeeds with no items is accepted as real data; a page that loads but yields no rows is reported as an error, because that means a block page or a stale selector. There are no retries: a failed fetch fails fast, and the retained snapshot covers it.
 
 The page updates itself. `app.js` polls `/api/version` every minute, on tab focus, and on reconnect, then swaps the dashboard in place when the snapshot advances.
 
@@ -86,7 +86,8 @@ Axum server (:3000)
   └── GET /api/version → snapshot timestamp + ETag for the client poll
 
 Background tasks (Tokio)
-  ├── Scraper (30 min) → HN API + GitHub HTML + Reddit HTML → merge per key → ArcSwap
+  ├── Scraper (8 h) → HN API + GitHub HTML → merge per key → ArcSwap
+  ├── Reddit scraper (~2 h) → random subset of subreddits via Reddit's OAuth API → merge per key → ArcSwap
   └── HTML refresh (1 min) → re-render timestamps → ArcSwap
 ```
 
@@ -97,7 +98,8 @@ All configuration lives in `src/config.rs` as compile-time constants. Key values
 | Constant | Default | Description |
 |---|---|---|
 | `DEFAULT_PORT` | `3000` | Server port (overridden by `PORT` env var) |
-| `SCRAPE_INTERVAL_SECS` | `1800` | Time between full data refreshes |
+| `SCRAPE_INTERVAL_SECS` | `28800` | Time between Hacker News and GitHub refreshes |
+| `REDDIT_SCRAPE_INTERVAL_SECS` | `7200` | Time between Reddit refreshes |
 | `HTML_REFRESH_SECS` | `60` | Time between HTML re-renders |
 | `HN_STORIES_PER_PAGE` | `30` | Stories shown per HN page |
 | `GITHUB_REPOS_PER_PAGE` | `25` | Repos shown per GitHub language |

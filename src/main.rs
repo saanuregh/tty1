@@ -24,9 +24,15 @@ async fn main() {
     tokio::spawn(worker::run_scraper(
         data.clone(),
         html.clone(),
-        clients,
+        clients.direct,
         Duration::from_secs(config::SCRAPE_INTERVAL_SECS),
         config::HN_STORIES_PER_PAGE,
+    ));
+
+    tokio::spawn(worker::run_reddit_scraper(
+        data.clone(),
+        html.clone(),
+        clients.reddit,
     ));
 
     tokio::spawn(worker::run_html_refresher(

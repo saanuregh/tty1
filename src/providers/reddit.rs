@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use crate::client::Client;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use tracing::info;
 
-use super::{FetchError, jittered_delay, text};
+use super::reddit_auth::RedditSession;
+use super::{FetchError, error_chain, text};
 use crate::config;
 
 /// Key: subreddit name (lowercase) or "all" for the merged top-N view.
@@ -49,28 +51,114 @@ impl RedditPost {
     }
 }
 
-/// Fetch every configured subreddit. The merged "all" view is NOT built here:
-/// it must be derived after the merge so it can draw on retained data too.
-pub async fn fetch_reddit_feed(client: &Client) -> RedditFetch {
-    info!(
-        subreddits = config::REDDIT_SUBREDDITS.len(),
-        "reddit: fetching"
-    );
+/// Fetch `subreddits` in order, paced like someone browsing. The merged "all"
+/// view is NOT built here: it must be derived after the merge so it can draw
+/// on retained data too. Subreddits not requested are absent from the result.
+pub async fn fetch_reddit_feed(
+    client: &Client,
+    session: &mut RedditSession,
+    subreddits: &[&str],
+) -> RedditFetch {
+    info!(subreddits = subreddits.len(), "reddit: fetching");
 
-    // Sequential, jitter-paced fetches: a randomized gap between requests so the
-    // cadence does not look like a fixed-interval bot. No delay before the first.
-    let mut feed = RedditFetch::with_capacity(config::REDDIT_SUBREDDITS.len());
-    for (i, &sub) in config::REDDIT_SUBREDDITS.iter().enumerate() {
+    let mut rng = fastrand::Rng::new();
+    let mut feed = RedditFetch::with_capacity(subreddits.len());
+    let mut rate_limit_wait: Option<Duration> = None;
+    let mut renewed_after_401 = false;
+    for (i, &sub) in subreddits.iter().enumerate() {
         if i > 0 {
-            jittered_delay(
-                config::REDDIT_REQUEST_INTERVAL_MS,
-                config::REDDIT_REQUEST_JITTER_MS,
-            )
-            .await;
+            tokio::time::sleep(request_gap(&mut rng)).await;
         }
-        feed.insert(sub.to_lowercase(), fetch_subreddit(client, sub).await);
+        if let Some(pause) = rate_limit_wait.take() {
+            info!(
+                pause_secs = pause.as_secs(),
+                "reddit: rate limit nearly spent, pausing"
+            );
+            tokio::time::sleep(pause).await;
+        }
+        // One failed token request fails the rest of the cycle: asking again
+        // for every subreddit would only hammer the token endpoint.
+        if let Err(e) = session.ensure_token(client).await {
+            tracing::error!(error = %error_chain(&e), "reddit: token request failed");
+            for &rest in &subreddits[i..] {
+                feed.insert(rest.to_lowercase(), Err(FetchError::TokenUnavailable));
+            }
+            break;
+        }
+        let (result, pause) = fetch_listing(client, session, sub, &mut rng).await;
+        rate_limit_wait = pause;
+        feed.insert(sub.to_lowercase(), result);
+
+        // A 401 drops the token. One fresh token per cycle is worth trying;
+        // a second 401 means Reddit is rejecting this client, and a new
+        // token and device for every remaining subreddit would only look worse.
+        if !session.has_token() {
+            if renewed_after_401 {
+                tracing::error!("reddit: repeated 401, stopping this cycle");
+                for &rest in &subreddits[i + 1..] {
+                    feed.insert(rest.to_lowercase(), Err(FetchError::TokenUnavailable));
+                }
+                break;
+            }
+            renewed_after_401 = true;
+        }
     }
     feed
+}
+
+/// Subreddits to fetch this cycle, in request order: a random subset, plus
+/// every configured subreddit with no posts yet, so a cold start fills every
+/// panel instead of leaving some blank until a later cycle picks them.
+pub fn plan_cycle(feed: &RedditFeed, rng: &mut fastrand::Rng) -> Vec<&'static str> {
+    let mut cycle = pick_subset(config::REDDIT_SUBREDDITS, rng);
+    for &sub in config::REDDIT_SUBREDDITS {
+        let has_posts = feed
+            .get(&sub.to_lowercase())
+            .is_some_and(|posts| !posts.is_empty());
+        if !has_posts && !cycle.contains(&sub) {
+            cycle.push(sub);
+        }
+    }
+    rng.shuffle(&mut cycle);
+    cycle
+}
+
+/// Shuffled subset of `subreddits`, sized at a random percentage between
+/// `REDDIT_SUBSET_MIN_PERCENT` and `REDDIT_SUBSET_MAX_PERCENT`, never empty.
+fn pick_subset<'a>(subreddits: &[&'a str], rng: &mut fastrand::Rng) -> Vec<&'a str> {
+    let percent = rng.u64(config::REDDIT_SUBSET_MIN_PERCENT..=config::REDDIT_SUBSET_MAX_PERCENT);
+    let count = (subreddits.len() as u64 * percent).div_ceil(100).max(1) as usize;
+    let mut subset = subreddits.to_vec();
+    rng.shuffle(&mut subset);
+    subset.truncate(count);
+    subset
+}
+
+/// Gap before the next request: usually a few seconds, sometimes a long
+/// pause, like someone scrolling and then stopping to read.
+fn request_gap(rng: &mut fastrand::Rng) -> Duration {
+    let millis = if rng.u64(0..100) < config::REDDIT_LONG_PAUSE_PERCENT {
+        rng.u64(config::REDDIT_LONG_PAUSE_MIN_MS..=config::REDDIT_LONG_PAUSE_MAX_MS)
+    } else {
+        rng.u64(config::REDDIT_GAP_MIN_MS..=config::REDDIT_GAP_MAX_MS)
+    };
+    Duration::from_millis(millis)
+}
+
+/// How long to wait before the next request when the rate-limit window is
+/// nearly spent: until the reset plus a little random slack, capped.
+fn rate_limit_pause(
+    remaining: Option<f64>,
+    reset_secs: Option<u64>,
+    rng: &mut fastrand::Rng,
+) -> Option<Duration> {
+    if remaining? > config::REDDIT_RATE_LIMIT_LOW {
+        return None;
+    }
+    let secs = reset_secs.unwrap_or(config::REDDIT_RATE_LIMIT_MAX_PAUSE_SECS) + rng.u64(1..=5);
+    Some(Duration::from_secs(
+        secs.min(config::REDDIT_RATE_LIMIT_MAX_PAUSE_SECS),
+    ))
 }
 
 /// Top N posts across every subreddit, by score. Skips an existing "all" key so
@@ -86,12 +174,81 @@ pub fn build_all_view(feed: &RedditFeed) -> Vec<RedditPost> {
     all
 }
 
-// ===== Active source: old.reddit HTML =====
+// ===== Active source: OAuth API as the Android app =====
+
+/// One subreddit's hot listing. Also returns how long to pause afterwards when
+/// the rate-limit window is nearly spent. No retry: a failed key keeps its
+/// previous data, and after a 401 the next key gets a fresh token.
+async fn fetch_listing(
+    client: &Client,
+    session: &mut RedditSession,
+    subreddit: &str,
+    rng: &mut fastrand::Rng,
+) -> (Result<Vec<RedditPost>, FetchError>, Option<Duration>) {
+    let url = format!(
+        // +5 margin for stickied/deleted posts filtered out during parsing.
+        "{}/r/{}/hot?limit={}&raw_json=1",
+        config::REDDIT_API_BASE,
+        subreddit,
+        config::REDDIT_POSTS_PER_SUB + 5
+    );
+
+    let response = match session.authorize(client.get(&url)).send().await {
+        Ok(response) => response,
+        Err(e) => return (Err(e.into()), None),
+    };
+    let pause = rate_limit_pause(
+        header_value(&response, "x-ratelimit-remaining"),
+        header_value(&response, "x-ratelimit-reset"),
+        rng,
+    );
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        session.invalidate();
+    }
+
+    let result = async {
+        let body: serde_json::Value = response.error_for_status()?.json().await?;
+        parse_listing_json(&body)
+    }
+    .await;
+    (result, pause)
+}
+
+fn header_value<T: std::str::FromStr>(response: &reqwest::Response, name: &str) -> Option<T> {
+    response
+        .headers()
+        .get(name)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Posts from a listing body (`data.children[].data`), shared by the OAuth
+/// API and the retained public JSON fetch.
+fn parse_listing_json(body: &serde_json::Value) -> Result<Vec<RedditPost>, FetchError> {
+    // An error body (403, rate limit) has no listing at all — not an empty one.
+    let Some(children) = body["data"]["children"].as_array() else {
+        return Err(FetchError::EmptyPage);
+    };
+
+    Ok(children
+        .iter()
+        .filter_map(|c| serde_json::from_value::<RedditPost>(c["data"].clone()).ok())
+        .filter(|p| !p.stickied && p.author != "[deleted]")
+        .take(config::REDDIT_POSTS_PER_SUB)
+        .map(RedditPost::finalize)
+        .collect())
+}
+
+// ===== Retained: old.reddit HTML (now behind a login) =====
+
 //
-// Reddit disabled the public JSON API (www.reddit.com/.../hot.json now 403s),
-// but old.reddit.com still serves the listing as HTML with score and comment
-// counts exposed as `data-*` attributes on each `div.thing` — everything the
-// JSON API used to give, in a scrapeable form.
+// old.reddit.com serves the listing as HTML with score and comment counts
+// exposed as `data-*` attributes on each `div.thing`. It now redirects
+// anonymous requests to a login page, so this is unused. Kept in case that
+// changes; like `fetch_subreddit`, it needs a client with browser headers.
 
 struct RedditSelectors {
     thing: Selector,
@@ -105,6 +262,7 @@ static SELECTORS: LazyLock<Option<RedditSelectors>> = LazyLock::new(|| {
     })
 });
 
+#[allow(dead_code)]
 async fn scrape_subreddit(client: &Client, subreddit: &str) -> Result<Vec<RedditPost>, FetchError> {
     let url = format!(
         // +5 margin for stickied/promoted/deleted rows filtered out during parsing.
@@ -133,8 +291,6 @@ fn parse_listing_html(html: &str) -> Result<Vec<RedditPost>, FetchError> {
     };
 
     let document = Html::parse_document(html);
-
-    dbg!(&document);
 
     // Detect stale markup / block pages: a valid listing always has thing rows.
     if document.select(&sel.thing).next().is_none() && html.len() > 1000 {
@@ -214,8 +370,9 @@ fn parse_listing_html(html: &str) -> Result<Vec<RedditPost>, FetchError> {
 // ===== Retained: public JSON API (disabled by Reddit) =====
 //
 // Reddit shut down the public .json endpoint (it now 403s), so this is unused
-// and `scrape_subreddit` (old.reddit) is the live source. Kept in case Reddit
-// re-enables it — same return type, so swapping it back in is a one-line change.
+// and `fetch_listing` (OAuth API) is the live source. Kept in case Reddit
+// re-enables it. Reviving it needs a client with browser headers: the Reddit
+// client now sends only the Android headers added per request.
 #[allow(dead_code)]
 async fn fetch_subreddit(client: &Client, subreddit: &str) -> Result<Vec<RedditPost>, FetchError> {
     let url = format!(
@@ -233,18 +390,7 @@ async fn fetch_subreddit(client: &Client, subreddit: &str) -> Result<Vec<RedditP
         .json()
         .await?;
 
-    let empty = vec![];
-    let children = body["data"]["children"].as_array().unwrap_or(&empty);
-
-    let posts: Vec<_> = children
-        .iter()
-        .filter_map(|c| serde_json::from_value::<RedditPost>(c["data"].clone()).ok())
-        .filter(|p| !p.stickied && p.author != "[deleted]")
-        .take(config::REDDIT_POSTS_PER_SUB)
-        .map(RedditPost::finalize)
-        .collect();
-
-    Ok(posts)
+    parse_listing_json(&body)
 }
 
 #[cfg(test)]
@@ -252,23 +398,173 @@ mod tests {
     use super::*;
     use crate::{config::REDDIT_SUBREDDITS, providers::tests::test_clients};
 
-
     #[tokio::test]
+    #[ignore = "live HTTP"]
     async fn test_fetch_subreddit() {
         let clients = test_clients();
-        let result = fetch_subreddit(&clients.reddit, REDDIT_SUBREDDITS[0])
+        let result = fetch_subreddit(&clients.direct, REDDIT_SUBREDDITS[0])
             .await
             .unwrap();
         assert!(!result.is_empty(), "all feed returned no posts");
     }
 
     #[tokio::test]
+    #[ignore = "live HTTP"]
     async fn test_scrape_subreddit() {
         let clients = test_clients();
-        let result = scrape_subreddit(&clients.reddit, REDDIT_SUBREDDITS[0])
+        let result = scrape_subreddit(&clients.direct, REDDIT_SUBREDDITS[0])
             .await
             .unwrap();
         assert!(!result.is_empty(), "all feed returned no posts");
+    }
+
+    #[tokio::test]
+    #[ignore = "live HTTP"]
+    async fn fetch_listing_live() {
+        let clients = test_clients();
+        let mut session = RedditSession::new();
+        let mut rng = fastrand::Rng::new();
+        session.ensure_token(&clients.reddit).await.unwrap();
+        let (result, _) = fetch_listing(
+            &clients.reddit,
+            &mut session,
+            REDDIT_SUBREDDITS[0],
+            &mut rng,
+        )
+        .await;
+        assert!(!result.unwrap().is_empty(), "listing returned no posts");
+    }
+
+    fn listing(children: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "kind": "Listing", "data": { "children": children } })
+    }
+
+    fn child(title: &str, author: &str, stickied: bool) -> serde_json::Value {
+        serde_json::json!({ "kind": "t3", "data": {
+            "title": title,
+            "url": "https://example.com/x",
+            "permalink": "/r/rust/comments/abc/x/",
+            "subreddit": "Rust",
+            "score": 7,
+            "author": author,
+            "created_utc": 1_700_000_000.0,
+            "num_comments": 3,
+            "domain": "example.com",
+            "is_self": false,
+            "stickied": stickied,
+        }})
+    }
+
+    #[test]
+    fn parse_listing_filters_stickied_and_deleted() {
+        let body = listing(serde_json::json!([
+            child("keep", "alice", false),
+            child("pinned", "mod", true),
+            child("gone", "[deleted]", false),
+        ]));
+        let posts = parse_listing_json(&body).unwrap();
+        let titles: Vec<&str> = posts.iter().map(|p| p.title.as_str()).collect();
+        assert_eq!(titles, vec!["keep"]);
+    }
+
+    #[test]
+    fn parse_listing_without_children_is_empty_page() {
+        let body = serde_json::json!({ "message": "Forbidden", "error": 403 });
+        assert!(matches!(
+            parse_listing_json(&body),
+            Err(FetchError::EmptyPage)
+        ));
+    }
+
+    #[test]
+    fn parse_listing_finalizes_permalink() {
+        let body = listing(serde_json::json!([child("keep", "alice", false)]));
+        let post = &parse_listing_json(&body).unwrap()[0];
+        assert_eq!(
+            post.permalink,
+            "https://www.reddit.com/r/rust/comments/abc/x/"
+        );
+        assert_eq!(post.subreddit, "rust");
+    }
+
+    #[test]
+    fn subset_size_within_bounds() {
+        let subs: Vec<&str> = (0..50).map(|_| "s").collect();
+        let mut rng = fastrand::Rng::with_seed(1);
+        for _ in 0..200 {
+            let n = pick_subset(&subs, &mut rng).len() as u64;
+            assert!(
+                n >= 50 * config::REDDIT_SUBSET_MIN_PERCENT / 100,
+                "{n} too small"
+            );
+            assert!(
+                n <= 50 * config::REDDIT_SUBSET_MAX_PERCENT / 100,
+                "{n} too large"
+            );
+        }
+        assert_eq!(pick_subset(&["only"], &mut rng), vec!["only"]);
+    }
+
+    #[test]
+    fn subset_is_unique_and_configured() {
+        let mut rng = fastrand::Rng::with_seed(2);
+        let subset = pick_subset(REDDIT_SUBREDDITS, &mut rng);
+        let unique: std::collections::HashSet<_> = subset.iter().collect();
+        assert_eq!(unique.len(), subset.len());
+        assert!(subset.iter().all(|s| REDDIT_SUBREDDITS.contains(s)));
+    }
+
+    #[test]
+    fn plan_cycle_includes_every_subreddit_without_posts() {
+        let mut rng = fastrand::Rng::with_seed(5);
+        let all = plan_cycle(&RedditFeed::new(), &mut rng);
+        assert_eq!(
+            all.len(),
+            REDDIT_SUBREDDITS.len(),
+            "cold start fetches everything"
+        );
+
+        let full: RedditFeed = REDDIT_SUBREDDITS
+            .iter()
+            .map(|s| (s.to_lowercase(), vec![post(s, 1)]))
+            .collect();
+        let warm = plan_cycle(&full, &mut rng);
+        assert!(
+            warm.len() < REDDIT_SUBREDDITS.len(),
+            "warm cycle fetches a subset"
+        );
+    }
+
+    #[test]
+    fn request_gap_within_bounds() {
+        let mut rng = fastrand::Rng::with_seed(3);
+        let (mut short, mut long) = (0, 0);
+        for _ in 0..1000 {
+            let ms = request_gap(&mut rng).as_millis() as u64;
+            if (config::REDDIT_GAP_MIN_MS..=config::REDDIT_GAP_MAX_MS).contains(&ms) {
+                short += 1;
+            } else if (config::REDDIT_LONG_PAUSE_MIN_MS..=config::REDDIT_LONG_PAUSE_MAX_MS)
+                .contains(&ms)
+            {
+                long += 1;
+            } else {
+                panic!("gap {ms} ms outside both ranges");
+            }
+        }
+        assert!(short > 0 && long > 0, "short={short} long={long}");
+    }
+
+    #[test]
+    fn rate_limit_pause_only_when_low() {
+        let mut rng = fastrand::Rng::with_seed(4);
+        assert_eq!(rate_limit_pause(Some(50.0), Some(300), &mut rng), None);
+        assert_eq!(rate_limit_pause(None, Some(300), &mut rng), None);
+
+        let pause = rate_limit_pause(Some(3.0), Some(300), &mut rng).unwrap();
+        assert!((301..=305).contains(&pause.as_secs()), "{pause:?}");
+
+        let capped = rate_limit_pause(Some(0.0), Some(99_999), &mut rng).unwrap();
+        assert_eq!(capped.as_secs(), config::REDDIT_RATE_LIMIT_MAX_PAUSE_SECS);
     }
 
     fn post(subreddit: &str, score: i64) -> RedditPost {

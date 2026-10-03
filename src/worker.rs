@@ -1,33 +1,61 @@
-use std::sync::Arc;
+use std::collections::hash_map::Entry;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
 use crate::cache::{DataSnapshot, HtmlSnapshot, SharedData, SharedHtml};
-use crate::client::Clients;
+use crate::client::Client;
 use crate::config;
-use crate::providers::{FetchError, github, hackernews, reddit};
+use crate::providers::reddit::{RedditFeed, RedditFetch};
+use crate::providers::reddit_auth::RedditSession;
+use crate::providers::{FetchError, error_chain, github, hackernews, reddit};
 
-/// Each provider fails independently — a single provider outage never blocks the others.
+/// Two loops write the shared snapshot: HN + GitHub, and Reddit. Each holds
+/// this across load-merge-store so neither overwrites the other's update.
+/// Held only for synchronous work, never across an await.
+static SNAPSHOT_WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+/// HN and GitHub. Each provider fails independently — a single provider
+/// outage never blocks the others. Reddit runs in `run_reddit_scraper`.
 pub async fn run_scraper(
     data: SharedData,
     html: SharedHtml,
-    clients: Clients,
+    client: Client,
     interval: Duration,
     story_count: usize,
 ) {
     loop {
-        fetch_and_update(&data, &clients, story_count).await;
+        fetch_and_update(&data, &client, story_count).await;
         rebuild_html(&data, &html).await;
-        let jitter = Duration::from_secs(fastrand::u64(0..=config::SCRAPE_JITTER_SECS * 2));
-        let sleep_dur = interval - Duration::from_secs(config::SCRAPE_JITTER_SECS) + jitter;
+        let sleep_dur = jittered_interval(interval, config::SCRAPE_JITTER_SECS);
         tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next scrape");
         tokio::time::sleep(sleep_dur).await;
     }
 }
 
+/// Reddit on its own, shorter cycle: each pass fetches a random subset, so a
+/// shorter interval keeps every subreddit fresh while spreading the requests.
+pub async fn run_reddit_scraper(data: SharedData, html: SharedHtml, client: Client) {
+    let mut session = RedditSession::new();
+    let interval = Duration::from_secs(config::REDDIT_SCRAPE_INTERVAL_SECS);
+    loop {
+        fetch_and_update_reddit(&data, &client, &mut session).await;
+        rebuild_html(&data, &html).await;
+        let sleep_dur = jittered_interval(interval, config::REDDIT_SCRAPE_JITTER_SECS);
+        tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next reddit scrape");
+        tokio::time::sleep(sleep_dur).await;
+    }
+}
+
+/// `interval` ± `jitter_secs`, uniform.
+fn jittered_interval(interval: Duration, jitter_secs: u64) -> Duration {
+    let jitter = Duration::from_secs(fastrand::u64(0..=jitter_secs * 2));
+    interval - Duration::from_secs(jitter_secs) + jitter
+}
+
 /// Separate from scraper: re-renders HTML every minute so relative timestamps ("3h ago")
-/// stay fresh between the 30-minute data fetches.
+/// stay fresh between data fetches.
 pub async fn run_html_refresher(data: SharedData, html: SharedHtml, interval: Duration) {
     loop {
         tokio::time::sleep(interval).await;
@@ -80,7 +108,7 @@ where
                 tracing::warn!(
                     provider = label,
                     key = ?key,
-                    error = %e,
+                    error = %error_chain(&e),
                     retained = retained.len(),
                     "fetch failed, keeping previous"
                 );
@@ -92,35 +120,30 @@ where
     (merged, fresh_count)
 }
 
-async fn fetch_and_update(data: &SharedData, clients: &Clients, story_count: usize) {
+async fn fetch_and_update(data: &SharedData, client: &Client, story_count: usize) {
     tracing::info!("scrape cycle starting");
 
     let start = Instant::now();
 
-    // All three providers fetch concurrently — each handles its own rate limiting internally.
-    let (hn_fresh, gh_fresh, reddit_fresh) = tokio::join!(
-        hackernews::fetch_all_pages(&clients.direct, story_count),
-        github::fetch_all_trending(&clients.direct),
-        reddit::fetch_reddit_feed(&clients.reddit),
+    // Both providers fetch concurrently — each handles its own rate limiting internally.
+    let (hn_fresh, gh_fresh) = tokio::join!(
+        hackernews::fetch_all_pages(client, story_count),
+        github::fetch_all_trending(client),
     );
 
+    let _write = SNAPSHOT_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     let current = data.load();
 
     let (hn_pages, hn_ok) = merge_keyed(hn_fresh, &current.hn_pages, "hn");
     let (gh_trending, gh_ok) = merge_keyed(gh_fresh, &current.gh_trending, "github");
-    let (mut reddit_feed, reddit_ok) = merge_keyed(reddit_fresh, &current.reddit_feed, "reddit");
-
-    // Derived after the merge so the merged view draws on retained data too.
-    let subreddit_count = reddit_feed.len();
-    let all = reddit::build_all_view(&reddit_feed);
-    reddit_feed.insert(config::FILTER_ALL.to_string(), all);
 
     // Per-key retention makes an outage invisible in the UI, so the log is the
     // only signal that a whole source is down.
     for (label, ok, total) in [
         ("hn", hn_ok, hn_pages.len()),
         ("github", gh_ok, gh_trending.len()),
-        ("reddit", reddit_ok, subreddit_count),
     ] {
         if total > 0 && ok == 0 {
             tracing::error!(provider = label, keys = total, "every key failed");
@@ -129,7 +152,7 @@ async fn fetch_and_update(data: &SharedData, clients: &Clients, story_count: usi
 
     // Do not advance the clock on a total failure: the footer would claim the
     // data is fresh when nothing changed.
-    let last_fetched = if hn_ok + gh_ok + reddit_ok > 0 {
+    let last_fetched = if hn_ok + gh_ok > 0 {
         Utc::now()
     } else {
         current.last_fetched
@@ -140,8 +163,6 @@ async fn fetch_and_update(data: &SharedData, clients: &Clients, story_count: usi
         hn_stale = hn_pages.len() - hn_ok,
         gh_fresh = gh_ok,
         gh_stale = gh_trending.len() - gh_ok,
-        reddit_fresh = reddit_ok,
-        reddit_stale = subreddit_count - reddit_ok,
         elapsed_secs = start.elapsed().as_secs(),
         "data cache updated"
     );
@@ -149,9 +170,70 @@ async fn fetch_and_update(data: &SharedData, clients: &Clients, story_count: usi
     data.store(Arc::new(DataSnapshot {
         hn_pages,
         gh_trending,
+        reddit_feed: current.reddit_feed.clone(),
+        last_fetched,
+    }));
+}
+
+async fn fetch_and_update_reddit(data: &SharedData, client: &Client, session: &mut RedditSession) {
+    let start = Instant::now();
+
+    let subreddits = reddit::plan_cycle(&data.load().reddit_feed, &mut fastrand::Rng::new());
+    let fresh = reddit::fetch_reddit_feed(client, session, &subreddits).await;
+    let requested = fresh.len();
+
+    let _write = SNAPSHOT_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let current = data.load();
+
+    let (reddit_feed, reddit_ok) =
+        merge_reddit(fresh, &current.reddit_feed, config::REDDIT_SUBREDDITS);
+
+    if requested > 0 && reddit_ok == 0 {
+        tracing::error!(provider = "reddit", keys = requested, "every key failed");
+    }
+
+    let last_fetched = if reddit_ok > 0 {
+        Utc::now()
+    } else {
+        current.last_fetched
+    };
+
+    tracing::info!(
+        reddit_fresh = reddit_ok,
+        reddit_failed = requested - reddit_ok,
+        reddit_skipped = config::REDDIT_SUBREDDITS.len() - requested,
+        elapsed_secs = start.elapsed().as_secs(),
+        "reddit cache updated"
+    );
+
+    data.store(Arc::new(DataSnapshot {
+        hn_pages: current.hn_pages.clone(),
+        gh_trending: current.gh_trending.clone(),
         reddit_feed,
         last_fetched,
     }));
+}
+
+/// `merge_keyed` over the fetched subreddits, then every configured subreddit
+/// this cycle skipped keeps its previous posts. Unconfigured keys drop. The
+/// "all" view is rebuilt last so it draws on retained data too.
+fn merge_reddit(
+    fresh: RedditFetch,
+    current: &RedditFeed,
+    configured: &[&str],
+) -> (RedditFeed, usize) {
+    let (mut merged, fresh_count) = merge_keyed(fresh, current, "reddit");
+    for sub in configured {
+        if let Entry::Vacant(slot) = merged.entry(sub.to_lowercase()) {
+            let previous = current.get(slot.key()).cloned().unwrap_or_default();
+            slot.insert(previous);
+        }
+    }
+    let all = reddit::build_all_view(&merged);
+    merged.insert(config::FILTER_ALL.to_string(), all);
+    (merged, fresh_count)
 }
 
 #[cfg(test)]
@@ -192,6 +274,63 @@ mod tests {
         let fresh = HashMap::from([("z", Err(FetchError::EmptyPage))]);
         let (merged, _) = merge_keyed(fresh, &current(), "t");
         assert!(merged["z"].is_empty());
+    }
+
+    fn posts(subreddit: &str, score: i64) -> Vec<reddit::RedditPost> {
+        vec![reddit::RedditPost {
+            title: "t".into(),
+            url: String::new(),
+            permalink: String::new(),
+            subreddit: subreddit.into(),
+            score,
+            author: "a".into(),
+            created_at: 0.0,
+            comment_count: 0,
+            domain: String::new(),
+            is_self: false,
+            stickied: false,
+        }]
+    }
+
+    fn previous_feed() -> RedditFeed {
+        RedditFeed::from([
+            ("rust".to_string(), posts("rust", 1)),
+            ("zig".to_string(), posts("zig", 2)),
+            ("removed".to_string(), posts("removed", 3)),
+            ("all".to_string(), posts("stale", 9999)),
+        ])
+    }
+
+    #[test]
+    fn reddit_merge_keeps_skipped_keys() {
+        let fresh = RedditFetch::from([("rust".to_string(), Ok(posts("rust", 10)))]);
+        let (merged, ok) = merge_reddit(fresh, &previous_feed(), &["rust", "zig", "go"]);
+        assert_eq!(ok, 1);
+        assert_eq!(merged["rust"][0].score, 10);
+        assert_eq!(
+            merged["zig"][0].score, 2,
+            "skipped key keeps previous posts"
+        );
+        assert!(
+            merged["go"].is_empty(),
+            "never-fetched key is present and empty"
+        );
+    }
+
+    #[test]
+    fn reddit_merge_drops_unconfigured() {
+        let fresh = RedditFetch::new();
+        let (merged, _) = merge_reddit(fresh, &previous_feed(), &["rust"]);
+        assert!(!merged.contains_key("removed"));
+        assert!(!merged.contains_key("zig"));
+    }
+
+    #[test]
+    fn reddit_merge_rebuilds_all_view() {
+        let fresh = RedditFetch::from([("rust".to_string(), Ok(posts("rust", 10)))]);
+        let (merged, _) = merge_reddit(fresh, &previous_feed(), &["rust", "zig"]);
+        let scores: Vec<i64> = merged["all"].iter().map(|p| p.score).collect();
+        assert_eq!(scores, vec![10, 2]);
     }
 
     #[test]

@@ -5,7 +5,7 @@
 ```sh
 cargo run                  # dev server on :3000
 cargo test                 # unit tests only (fast)
-cargo test -- --ignored    # live API tests (Reddit may 403)
+cargo test -- --ignored    # live API tests (Reddit may 403/429)
 cargo build --release      # optimized binary (LTO + strip + oz)
 docker compose up -d       # build and run with docker compose
 ```
@@ -37,7 +37,7 @@ src/
   config.rs        # all constants (ports, intervals, URLs, subreddits, languages) + PORT/REDDIT_PROXY env
   csp.rs           # CSP header: SHA-256 hashes of every inline script, built once at startup
   cache.rs         # ArcSwap-backed shared state, compression (gzip/zstd), ETag
-  worker.rs        # background scraper (30 min) and HTML refresher (1 min)
+  worker.rs        # HN/GitHub scraper (8 h), Reddit scraper (~2 h), HTML refresher (1 min)
   client.rs        # HTTP client (tracing, browser emulation, proxy support)
   render/
     mod.rs         # re-exports: render_page, render_settings_page, render_loading_page
@@ -49,7 +49,8 @@ src/
     mod.rs         # shared error types, batched_fetch helper, test utilities
     hackernews.rs  # HN Firebase API client
     github.rs      # GitHub trending HTML scraper
-    reddit.rs      # Reddit JSON API client
+    reddit.rs      # Reddit OAuth API client (subset, pacing, listing parser)
+    reddit_auth.rs # anonymous Android-app OAuth token and device identity
   static/
     icons/         # SVG icons (app, favicon, provider logos) inlined into HTML
     manifest.json  # PWA web app manifest
@@ -70,8 +71,10 @@ src/
 - **Reddit-only proxy**: `client::build_clients` returns a direct client and a Reddit client. The direct client calls `.no_proxy()` because reqwest otherwise applies `HTTPS_PROXY` from the environment (`auto_sys_proxy` defaults to true). Only `REDDIT_PROXY` is read.
 - **Auto-update without a reload**: `app.js` polls `/api/version` on an interval, on tab focus, and on `online`, then swaps `.dashboard` in place when `last_fetched` advances. `sw.js` intercepts `/` only when `request.mode === "navigate"`, so the poll is never answered from the service worker cache.
 - **Batched concurrent fetching**: `futures::stream::iter(...).map(fetch).buffered(N)` limits concurrency per provider.
-- **Browser emulation**: `client.rs` sets Chrome User-Agent and Client Hints headers to avoid bot detection from GitHub and Reddit.
-- **No request retries**: a failed fetch fails fast — provider errors are absorbed by the `keep_if_empty` pattern, which preserves the last good snapshot, so retrying (and hammering rate-limited endpoints like Reddit) buys nothing.
+- **Browser emulation**: `client.rs` sets Chrome User-Agent and Client Hints headers on the direct client to avoid bot detection from GitHub. The Reddit client sends no Chrome headers.
+- **Reddit as the Android app**: old.reddit and the public `.json` endpoints now require a login. `reddit_auth::RedditSession` gets an anonymous token from the official Android app's OAuth flow (the one Redlib uses) and reads `oauth.reddit.com`. It keeps one random device identity per 24 h token and picks a new one on renewal or after a 401. The old.reddit scraper and public `.json` fetch stay as dead code.
+- **Reddit pacing**: `worker::run_reddit_scraper` runs its own loop. Each cycle fetches a shuffled random subset of subreddits (`reddit::plan_cycle`, which always includes subreddits with no posts yet), with uneven gaps and occasional long pauses, and waits out a nearly spent rate-limit window. `worker::merge_reddit` keeps the previous posts of skipped subreddits. Both loops write the snapshot under `SNAPSHOT_WRITE_LOCK`. On a cold start the dashboard appears once either loop stores, so Reddit panels stay empty for a few minutes until the first Reddit cycle finishes; the `/api/version` poll swaps them in.
+- **No request retries**: a failed fetch fails fast — provider errors are absorbed by per-key last-good data, so retrying (and hammering rate-limited endpoints like Reddit) buys nothing.
 - **Vendored OpenSSL**: Reddit and GitHub fingerprint TLS and block rustls. The `native-tls-vendored` feature statically links OpenSSL into the binary.
 
 ## Conventions
@@ -88,5 +91,5 @@ src/
 - **Add a subreddit**: append to `REDDIT_SUBREDDITS` in `config.rs`
 - **Add a GitHub language**: append `("Display Name", "url-slug")` to `GITHUB_LANGUAGES` in `config.rs`
 - **Add a new HN page**: append `("label", "api_endpoint")` to `HN_PAGES` in `config.rs`, add UI filter in `render/dashboard.rs`
-- **Change scrape interval**: update `SCRAPE_INTERVAL_SECS` in `config.rs`
-- **Add a new provider**: create `src/providers/new.rs` returning `HashMap<K, Result<Vec<T>, FetchError>>`, add the stored type to `DataSnapshot` in `cache.rs`, add the fetch and a `merge_keyed` call to `fetch_and_update` in `worker.rs`, add the panel in `render/dashboard.rs`
+- **Change scrape interval**: update `SCRAPE_INTERVAL_SECS` (HN, GitHub) or `REDDIT_SCRAPE_INTERVAL_SECS` in `config.rs`
+- **Add a new provider**: create `src/providers/new.rs` returning `HashMap<K, Result<Vec<T>, FetchError>>`, add the stored type to `DataSnapshot` in `cache.rs`, add the fetch and a `merge_keyed` call to `fetch_and_update` in `worker.rs` (and carry the field through `fetch_and_update_reddit`), add the panel in `render/dashboard.rs`
