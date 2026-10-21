@@ -40,7 +40,7 @@ docker build -t tty1 .
 docker run --rm -p 3000:3000 tty1
 ```
 
-Uses a distroless base image with vendored OpenSSL — no system dependencies needed at runtime.
+Uses a distroless base image with vendored OpenSSL — no system dependencies needed at runtime. Compose mounts a named volume at `/state`, so the last snapshot and the Reddit session survive container re-creation. Running the image directly starts cold unless you mount a volume at `STATE_DIR`.
 
 ### Testing
 
@@ -60,6 +60,7 @@ All optional — the app runs with sensible defaults:
 | `PORT` | `3000` | Server listen port |
 | `RUST_LOG` | `info` | Log verbosity (e.g. `tty1=debug,info`) |
 | `REDDIT_PROXY` | — | Proxy URL for Reddit requests only (http/https/socks5/socks5h) |
+| `STATE_DIR` | `state` | Directory for the persisted snapshot and Reddit session. An unwritable path only costs a cold start |
 
 ## API
 
@@ -75,6 +76,8 @@ All optional — the app runs with sensible defaults:
 Background workers scrape Hacker News and GitHub every 8 hours and Reddit about every 2 hours, and store the results in an `ArcSwap`-backed shared state. HTML is pre-rendered and pre-compressed (gzip + zstd) every 60 seconds. Incoming requests select the best encoding and return the cached response with ETag support — no rendering happens in the request path.
 
 The providers run concurrently and fail independently. Failure is tracked per key — per HN page, per GitHub language and period, per subreddit — so a single dead subreddit keeps its previous posts instead of blanking the panel. A fetch that succeeds with no items is accepted as real data; a page that loads but yields no rows is reported as an error, because that means a block page or a stale selector. There are no retries: a failed fetch fails fast, and the retained snapshot covers it.
+
+The last good snapshot is written to `STATE_DIR/feed.json` after every cycle — same-directory temp file, fsync, then `rename`, so a kill never leaves a partial file — and restored before the server binds. A restart therefore paints real panels immediately and `/api/health` answers `200` without waiting for a scrape. The Reddit device identity and anonymous token live beside it in `STATE_DIR/reddit-session.json`, so a restart reuses an unexpired token instead of requesting a new one.
 
 The page updates itself. `app.js` polls `/api/version` every minute, on tab focus, and on reconnect, then swaps the dashboard in place when the snapshot advances.
 

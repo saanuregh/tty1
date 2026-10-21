@@ -6,6 +6,7 @@ target/
 .pre-commit-config.yaml
 .env
 .env.*
+state/
 .claude/
 *.md
 .idea/

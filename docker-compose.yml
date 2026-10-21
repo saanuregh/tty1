@@ -8,3 +8,8 @@ services:
       # Reddit blocks many datacenter ranges. Proxies Reddit only.
       # - REDDIT_PROXY=socks5h://user:pass@host:1080
     restart: unless-stopped
+    volumes:
+      - tty1-state:/state
+
+volumes:
+  tty1-state:

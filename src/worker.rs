@@ -10,9 +10,10 @@ use crate::config;
 use crate::providers::reddit::{RedditFeed, RedditFetch};
 use crate::providers::reddit_auth::RedditSession;
 use crate::providers::{FetchError, error_chain, github, hackernews, reddit};
+use crate::state::StateStore;
 
 /// Two loops write the shared snapshot: HN + GitHub, and Reddit. Each holds
-/// this across load-merge-store so neither overwrites the other's update.
+/// this across load-merge-store-save so neither overwrites the other's update.
 /// Held only for synchronous work, never across an await.
 static SNAPSHOT_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -24,9 +25,10 @@ pub async fn run_scraper(
     client: Client,
     interval: Duration,
     story_count: usize,
+    store: StateStore,
 ) {
     loop {
-        fetch_and_update(&data, &client, story_count).await;
+        fetch_and_update(&data, &client, story_count, &store).await;
         rebuild_html(&data, &html).await;
         let sleep_dur = jittered_interval(interval, config::SCRAPE_JITTER_SECS);
         tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next scrape");
@@ -36,11 +38,22 @@ pub async fn run_scraper(
 
 /// Reddit on its own, shorter cycle: each pass fetches a random subset, so a
 /// shorter interval keeps every subreddit fresh while spreading the requests.
-pub async fn run_reddit_scraper(data: SharedData, html: SharedHtml, client: Client) {
-    let mut session = RedditSession::new();
+pub async fn run_reddit_scraper(
+    data: SharedData,
+    html: SharedHtml,
+    client: Client,
+    store: StateStore,
+) {
+    let mut session = match store.load_reddit_session() {
+        Some(persisted) => RedditSession::restore(persisted).unwrap_or_else(|| {
+            tracing::info!("reddit: persisted session expired, starting fresh");
+            RedditSession::new()
+        }),
+        None => RedditSession::new(),
+    };
     let interval = Duration::from_secs(config::REDDIT_SCRAPE_INTERVAL_SECS);
     loop {
-        fetch_and_update_reddit(&data, &client, &mut session).await;
+        fetch_and_update_reddit(&data, &client, &mut session, &store).await;
         rebuild_html(&data, &html).await;
         let sleep_dur = jittered_interval(interval, config::REDDIT_SCRAPE_JITTER_SECS);
         tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next reddit scrape");
@@ -120,7 +133,12 @@ where
     (merged, fresh_count)
 }
 
-async fn fetch_and_update(data: &SharedData, client: &Client, story_count: usize) {
+async fn fetch_and_update(
+    data: &SharedData,
+    client: &Client,
+    story_count: usize,
+    store: &StateStore,
+) {
     tracing::info!("scrape cycle starting");
 
     let start = Instant::now();
@@ -167,15 +185,22 @@ async fn fetch_and_update(data: &SharedData, client: &Client, story_count: usize
         "data cache updated"
     );
 
-    data.store(Arc::new(DataSnapshot {
+    let next = Arc::new(DataSnapshot {
         hn_pages,
         gh_trending,
         reddit_feed: current.reddit_feed.clone(),
         last_fetched,
-    }));
+    });
+    data.store(next.clone());
+    store.save_feed(&next);
 }
 
-async fn fetch_and_update_reddit(data: &SharedData, client: &Client, session: &mut RedditSession) {
+async fn fetch_and_update_reddit(
+    data: &SharedData,
+    client: &Client,
+    session: &mut RedditSession,
+    store: &StateStore,
+) {
     let start = Instant::now();
 
     let subreddits = reddit::plan_cycle(&data.load().reddit_feed, &mut fastrand::Rng::new());
@@ -208,12 +233,16 @@ async fn fetch_and_update_reddit(data: &SharedData, client: &Client, session: &m
         "reddit cache updated"
     );
 
-    data.store(Arc::new(DataSnapshot {
+    let next = Arc::new(DataSnapshot {
         hn_pages: current.hn_pages.clone(),
         gh_trending: current.gh_trending.clone(),
         reddit_feed,
         last_fetched,
-    }));
+    });
+    data.store(next.clone());
+    store.save_feed(&next);
+    drop(_write);
+    store.save_reddit_session(session);
 }
 
 /// `merge_keyed` over the fetched subreddits, then every configured subreddit

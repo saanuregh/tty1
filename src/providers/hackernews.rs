@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::client::Client;
 use futures::stream::{self, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 use super::FetchError;
@@ -38,6 +38,72 @@ pub struct HnStory {
     pub comment_count: u32,
     #[serde(default, skip_deserializing)]
     pub domain: Option<String>,
+}
+
+/// Persisted form of one story. Separate from `HnStory`, whose API deserializer
+/// skips the derived `hn_url` and `domain` and whose `id` is private. Building it
+/// field by field turns a newly added field into a compile error instead of a
+/// silent loss on restore.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct PersistedHnStory {
+    id: u64,
+    title: String,
+    url: Option<String>,
+    hn_url: String,
+    score: u32,
+    author: String,
+    created_at: u64,
+    comment_count: u32,
+    domain: Option<String>,
+}
+
+impl From<&HnStory> for PersistedHnStory {
+    fn from(story: &HnStory) -> Self {
+        Self {
+            id: story.id,
+            title: story.title.clone(),
+            url: story.url.clone(),
+            hn_url: story.hn_url.clone(),
+            score: story.score,
+            author: story.author.clone(),
+            created_at: story.created_at,
+            comment_count: story.comment_count,
+            domain: story.domain.clone(),
+        }
+    }
+}
+
+/// Restores the derived fields verbatim: the derivation in `fetch_item` runs
+/// only on fresh API data, so it must not run again here.
+impl From<PersistedHnStory> for HnStory {
+    fn from(state: PersistedHnStory) -> Self {
+        Self {
+            id: state.id,
+            title: state.title,
+            url: state.url,
+            hn_url: state.hn_url,
+            score: state.score,
+            author: state.author,
+            created_at: state.created_at,
+            comment_count: state.comment_count,
+            domain: state.domain,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_story(title: &str) -> HnStory {
+    HnStory {
+        id: 1,
+        title: title.into(),
+        url: Some("https://example.com/a".into()),
+        hn_url: "https://news.ycombinator.com/item?id=1".into(),
+        score: 10,
+        author: "alice".into(),
+        created_at: 1_700_000_000,
+        comment_count: 2,
+        domain: Some("example.com".into()),
+    }
 }
 
 fn deserialize_comment_count<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
@@ -125,6 +191,36 @@ fn extract_domain(url: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::providers::tests::test_clients;
+
+    fn story() -> HnStory {
+        HnStory {
+            id: 42,
+            title: "Show HN: a thing".into(),
+            url: Some("https://example.com/thing".into()),
+            hn_url: "https://news.ycombinator.com/item?id=42".into(),
+            score: 123,
+            author: "alice".into(),
+            created_at: 1_700_000_000,
+            comment_count: 45,
+            domain: Some("example.com".into()),
+        }
+    }
+
+    #[test]
+    fn hn_story_state_keeps_derived_fields() {
+        let story = story();
+        let restored = HnStory::from(PersistedHnStory::from(&story));
+
+        assert_eq!(restored.id, story.id);
+        assert_eq!(restored.title, story.title);
+        assert_eq!(restored.url, story.url);
+        assert_eq!(restored.hn_url, story.hn_url);
+        assert_eq!(restored.score, story.score);
+        assert_eq!(restored.author, story.author);
+        assert_eq!(restored.created_at, story.created_at);
+        assert_eq!(restored.comment_count, story.comment_count);
+        assert_eq!(restored.domain, story.domain);
+    }
 
     #[tokio::test]
     #[ignore = "live HTTP"]

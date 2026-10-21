@@ -1,6 +1,9 @@
 // -- App --
+use std::path::PathBuf;
+
 pub const PAGE_TITLE: &str = "tty1";
 pub const DEFAULT_PORT: u16 = 3000;
+pub const DEFAULT_STATE_DIR: &str = "state";
 
 pub fn port() -> u16 {
     std::env::var("PORT")
@@ -16,6 +19,19 @@ pub fn reddit_proxy() -> Option<String> {
 /// Split from `reddit_proxy` so it is testable without mutating process env.
 fn proxy_from(value: Option<String>) -> Option<String> {
     value.filter(|s| !s.trim().is_empty())
+}
+
+/// Directory holding the persisted snapshot and Reddit session. Optional: an
+/// unwritable path only costs a cold start, never a crash.
+pub fn state_dir() -> PathBuf {
+    state_dir_from(std::env::var("STATE_DIR").ok())
+}
+
+fn state_dir_from(value: Option<String>) -> PathBuf {
+    value
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_STATE_DIR))
 }
 
 pub const FILTER_ALL: &str = "all";
@@ -154,6 +170,23 @@ mod tests {
         assert_eq!(proxy_from(None), None);
         assert_eq!(proxy_from(Some(String::new())), None);
         assert_eq!(proxy_from(Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn blank_state_dir_is_default() {
+        assert_eq!(state_dir_from(None), PathBuf::from(DEFAULT_STATE_DIR));
+        assert_eq!(
+            state_dir_from(Some("   ".to_string())),
+            PathBuf::from(DEFAULT_STATE_DIR)
+        );
+    }
+
+    #[test]
+    fn set_state_dir_is_used() {
+        assert_eq!(
+            state_dir_from(Some("/var/lib/tty1".to_string())),
+            PathBuf::from("/var/lib/tty1")
+        );
     }
 
     #[test]

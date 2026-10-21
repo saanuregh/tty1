@@ -21,3 +21,6 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# Persisted runtime state (may hold a Reddit token)
+/state/

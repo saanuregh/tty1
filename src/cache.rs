@@ -101,15 +101,58 @@ pub struct AppState {
     pub html: SharedHtml,
 }
 
-pub fn new_shared_data() -> SharedData {
-    Arc::new(ArcSwap::new(Arc::new(DataSnapshot {
+pub fn new_shared_data(restored: Option<DataSnapshot>) -> SharedData {
+    let snapshot = restored.unwrap_or_else(|| DataSnapshot {
         hn_pages: HnPages::new(),
         gh_trending: GhTrending::new(),
         reddit_feed: RedditFeed::new(),
         last_fetched: DateTime::UNIX_EPOCH,
-    })))
+    });
+    Arc::new(ArcSwap::new(Arc::new(snapshot)))
 }
 
-pub fn new_shared_html() -> SharedHtml {
-    Arc::new(ArcSwap::new(Arc::new(HtmlSnapshot::loading())))
+/// Renders restored data so the first paint has real panels; falls back to the
+/// loading page when nothing was restored or rendering fails.
+pub fn new_shared_html(data: &SharedData) -> SharedHtml {
+    let snapshot = data.load_full();
+    let html = if snapshot.last_fetched.timestamp() > 0 {
+        HtmlSnapshot::from_data(&snapshot).unwrap_or_else(|| {
+            tracing::warn!("startup: rendering restored data failed, showing loading page");
+            HtmlSnapshot::loading()
+        })
+    } else {
+        HtmlSnapshot::loading()
+    };
+    Arc::new(ArcSwap::new(Arc::new(html)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_snapshot() -> DataSnapshot {
+        DataSnapshot {
+            hn_pages: HnPages::new(),
+            gh_trending: GhTrending::new(),
+            reddit_feed: RedditFeed::new(),
+            last_fetched: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn restored_snapshot_renders_instead_of_loading() {
+        let data = new_shared_data(Some(sample_snapshot()));
+        let html = new_shared_html(&data);
+
+        assert!(!html.load().is_loading);
+        assert!(html.load().html.len() > 1000);
+    }
+
+    #[test]
+    fn empty_snapshot_shows_loading_page() {
+        let data = new_shared_data(None);
+        let html = new_shared_html(&data);
+
+        assert!(html.load().is_loading);
+    }
 }

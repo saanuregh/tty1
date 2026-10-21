@@ -27,6 +27,7 @@ All optional — the app runs with sensible defaults and no configuration:
 | `PORT` | `3000` | Server listen port |
 | `RUST_LOG` | `info` | Log verbosity (e.g. `tty1=debug,info`) |
 | `REDDIT_PROXY` | — | Proxy URL for Reddit requests only (http/https/socks5/socks5h) |
+| `STATE_DIR` | `state` | Directory for the persisted snapshot and Reddit session |
 
 ## Project Structure
 
@@ -34,9 +35,10 @@ All optional — the app runs with sensible defaults and no configuration:
 src/
   main.rs          # server setup, routing, signal handling
   routes.rs        # HTTP handlers (index, settings, favicon, icon, manifest, sw.js, api/health, api/version)
-  config.rs        # all constants (ports, intervals, URLs, subreddits, languages) + PORT/REDDIT_PROXY env
+  config.rs        # all constants (ports, intervals, URLs, subreddits, languages) + PORT/STATE_DIR/REDDIT_PROXY env
   csp.rs           # CSP header: SHA-256 hashes of every inline script, built once at startup
   cache.rs         # ArcSwap-backed shared state, compression (gzip/zstd), ETag
+  state.rs         # persisted feed + Reddit session (versioned JSON, atomic replace, restored at startup)
   worker.rs        # HN/GitHub scraper (8 h), Reddit scraper (~2 h), HTML refresher (1 min)
   client.rs        # HTTP client (tracing, browser emulation, proxy support)
   render/
@@ -67,6 +69,7 @@ src/
 
 - **ArcSwap for lock-free reads**: `SharedData` and `SharedHtml` use `Arc<ArcSwap<T>>` so HTTP handlers never block on writer locks. Background tasks atomically swap in new snapshots.
 - **Pre-rendered + pre-compressed HTML**: The render step runs on a blocking Tokio task, produces HTML once, then compresses into gzip and zstd variants stored in `HtmlSnapshot`. Request handlers just pick the right variant.
+- **State survives restarts**: `state.rs` writes `feed.json` and `reddit-session.json` under `STATE_DIR` with a same-directory temp file, `fsync`, and `rename`, and loads them before the server binds. `main` passes the restored `DataSnapshot` to `cache::new_shared_data`, so the first paint has real panels and `/api/health` is `200` immediately. Persisted types are mirrors (`PersistedHnStory`, `PersistedRedditPost`) rather than the provider structs, whose serde attributes skip derived fields. A `version` mismatch, bad JSON, or an expired token logs and starts cold; a save failure never crashes a scrape.
 - **Per-key last-good data**: providers return `HashMap<K, Result<Vec<V>, FetchError>>`. `worker::merge_keyed` takes fresh data per key and retains the previous snapshot's value for any key that errored, so one dead subreddit never blanks a panel. An empty `Ok` is real data; a page that loads but yields no rows reports `FetchError::EmptyPage` instead. Reddit's merged `"all"` view is derived after the merge (`reddit::build_all_view`) so it draws on retained data too.
 - **Reddit-only proxy**: `client::build_clients` returns a direct client and a Reddit client. The direct client calls `.no_proxy()` because reqwest otherwise applies `HTTPS_PROXY` from the environment (`auto_sys_proxy` defaults to true). Only `REDDIT_PROXY` is read.
 - **Auto-update without a reload**: `app.js` polls `/api/version` on an interval, on tab focus, and on `online`, then swaps `.dashboard` in place when `last_fetched` advances. `sw.js` intercepts `/` only when `request.mode === "navigate"`, so the poll is never answered from the service worker cache.
@@ -79,7 +82,7 @@ src/
 
 ## Conventions
 
-- Config is compile-time constants in `config.rs` — only `PORT` and `REDDIT_PROXY` are read from env, and `config.rs` is the only file that reads the environment
+- Config is compile-time constants in `config.rs` — only `PORT`, `STATE_DIR`, and `REDDIT_PROXY` are read from env, and `config.rs` is the only file that reads the environment
 - HTML is built with Maud macros (compile-time checked), not string templates
 - Frontend is vanilla JS — no build step, no framework
 - CSS is split by concern (common/dashboard/settings) and inlined into each page's HTML response

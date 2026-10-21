@@ -5,6 +5,7 @@ mod csp;
 mod providers;
 mod render;
 mod routes;
+mod state;
 mod worker;
 
 use std::time::Duration;
@@ -17,8 +18,9 @@ async fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let data = cache::new_shared_data();
-    let html = cache::new_shared_html();
+    let store = state::StateStore::from_config();
+    let data = cache::new_shared_data(store.load_feed());
+    let html = cache::new_shared_html(&data);
     let clients = client::build_clients();
 
     tokio::spawn(worker::run_scraper(
@@ -27,12 +29,14 @@ async fn main() {
         clients.direct,
         Duration::from_secs(config::SCRAPE_INTERVAL_SECS),
         config::HN_STORIES_PER_PAGE,
+        store.clone(),
     ));
 
     tokio::spawn(worker::run_reddit_scraper(
         data.clone(),
         html.clone(),
         clients.reddit,
+        store,
     ));
 
     tokio::spawn(worker::run_html_refresher(

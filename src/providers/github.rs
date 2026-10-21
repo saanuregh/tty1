@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 
 use crate::client::Client;
 use scraper::{Html, Selector};
+use serde::{Deserialize, Serialize};
 
 use super::{FetchError, jittered_delay, text};
 use crate::config;
@@ -39,7 +40,7 @@ pub type GhTrending = HashMap<(String, String), Vec<TrendingRepo>>;
 /// What a fetch cycle returns before it is merged with the previous snapshot.
 pub type GhFetch = HashMap<(String, String), Result<Vec<TrendingRepo>, FetchError>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrendingRepo {
     pub author: String,
     pub name: String,

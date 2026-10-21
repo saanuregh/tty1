@@ -4,9 +4,10 @@
 
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
 use reqwest::header::{CONTENT_TYPE, USER_AGENT};
 use reqwest_middleware::RequestBuilder;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use super::{FetchError, error_chain};
@@ -86,6 +87,16 @@ impl Token {
     }
 }
 
+/// Persisted form of a session. No `Debug` on purpose: a stray `{:?}` must not
+/// print the bearer token. Written only to a 0600 file.
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct PersistedRedditSession {
+    pub(crate) user_agent: String,
+    pub(crate) vendor_id: String,
+    pub(crate) access_token: String,
+    pub(crate) expires_at_unix: i64,
+}
+
 pub struct RedditSession {
     device: Device,
     token: Option<Token>,
@@ -101,6 +112,45 @@ impl RedditSession {
 
     pub fn has_token(&self) -> bool {
         self.token.is_some()
+    }
+
+    /// The device and its token with a wall-clock expiry. `None` without a
+    /// token: an identity alone is worth nothing.
+    pub(crate) fn persist(&self) -> Option<PersistedRedditSession> {
+        let token = self.token.as_ref()?;
+        let remaining = token.expires_at.saturating_duration_since(Instant::now());
+        Some(PersistedRedditSession {
+            user_agent: self.device.user_agent.clone(),
+            vendor_id: self.device.vendor_id.clone(),
+            access_token: token.access_token.clone(),
+            expires_at_unix: Utc::now()
+                .timestamp()
+                .saturating_add(remaining.as_secs() as i64),
+        })
+    }
+
+    /// Rebuilds a session from disk. `None` once the token expired: the caller
+    /// starts a fresh identity instead of trusting a dead token.
+    pub(crate) fn restore(persisted: PersistedRedditSession) -> Option<Self> {
+        // Saturating: a hand-edited or corrupted extreme must not overflow.
+        let remaining = persisted
+            .expires_at_unix
+            .saturating_sub(Utc::now().timestamp());
+        if remaining <= 0 {
+            return None;
+        }
+
+        Some(Self {
+            device: Device {
+                user_agent: persisted.user_agent,
+                vendor_id: persisted.vendor_id,
+            },
+            token: Some(Token::issued(
+                persisted.access_token,
+                remaining as u64,
+                Instant::now(),
+            )),
+        })
     }
 
     /// Requests a token when none is held or the current one is due for
@@ -244,6 +294,53 @@ mod tests {
         let near_end = token.expires_at - Duration::from_secs(1);
         token.postpone_renewal(near_end);
         assert_eq!(token.renew_at, token.expires_at);
+    }
+
+    #[test]
+    fn session_persist_restore_keeps_token_and_device() {
+        let mut session = RedditSession::new();
+        session.token = Some(Token::issued("token".into(), 86_400, Instant::now()));
+
+        let persisted = session.persist().expect("a token is persisted");
+        assert_eq!(persisted.access_token, "token");
+        assert_eq!(persisted.user_agent, session.device.user_agent);
+        assert_eq!(persisted.vendor_id, session.device.vendor_id);
+
+        let restored = RedditSession::restore(persisted).expect("unexpired token restores");
+        assert!(restored.has_token());
+        assert_eq!(restored.device.user_agent, session.device.user_agent);
+        assert_eq!(restored.device.vendor_id, session.device.vendor_id);
+        let remaining = restored.token.as_ref().unwrap().expires_at - Instant::now();
+        assert!(remaining.as_secs() > 86_000, "{remaining:?}");
+    }
+
+    #[test]
+    fn expired_session_is_discarded() {
+        let persisted = PersistedRedditSession {
+            user_agent: "Reddit/Version 2024.22.1/Build 1/Android 14".into(),
+            vendor_id: "vendor".into(),
+            access_token: "token".into(),
+            expires_at_unix: chrono::Utc::now().timestamp() - 1,
+        };
+
+        assert!(RedditSession::restore(persisted).is_none());
+    }
+
+    #[test]
+    fn extreme_expiry_is_not_restored() {
+        let persisted = PersistedRedditSession {
+            user_agent: "Reddit/Version 2024.22.1/Build 1/Android 14".into(),
+            vendor_id: "vendor".into(),
+            access_token: "token".into(),
+            expires_at_unix: i64::MIN,
+        };
+
+        assert!(RedditSession::restore(persisted).is_none());
+    }
+
+    #[test]
+    fn persist_without_token_is_none() {
+        assert!(RedditSession::new().persist().is_none());
     }
 
     #[test]

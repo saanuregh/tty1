@@ -16,14 +16,18 @@ FROM gcr.io/distroless/cc-debian13
 COPY --from=busybox:1.38-musl /bin/wget /usr/bin/wget
 COPY --from=builder /app/target/release/tty1 /tty1
 ENV RUST_LOG=info
+# Persisted snapshot and Reddit session. Compose mounts a volume here.
+ENV STATE_DIR=/state
 EXPOSE 3000
-# start-period: grace window before failing checks count. /api/health returns 503
-# ("loading") until the first scrape cycle completes. That cycle is bottlenecked by
-# the jitter-paced Reddit leg (~37 subreddits at ~1s + request time ≈ 90s); with
-# process/container startup the cold start is ~110s. 180s leaves margin so the
-# container goes starting -> healthy without ever flickering "unhealthy". Note:
-# plain Docker never restarts on health status (only on process exit) — this
-# matters only for orchestrators that act on unhealthy.
+# start-period: grace window before failing checks count. On a first-ever start
+# /api/health returns 503 ("loading") until the first scrape cycle completes; with
+# a persisted /state volume the restored feed makes it 200 immediately. The cold
+# cycle is bottlenecked by the jitter-paced Reddit leg (~37 subreddits at ~1s +
+# request time ≈ 90s); with process/container startup the cold start is ~110s.
+# 180s leaves margin so the container goes starting -> healthy without ever
+# flickering "unhealthy". Note: plain Docker never restarts on health status
+# (only on process exit) — this matters only for orchestrators that act on
+# unhealthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
   CMD ["/usr/bin/wget", "--spider", "-q", "http://localhost:3000/api/health"]
 CMD ["/tty1"]

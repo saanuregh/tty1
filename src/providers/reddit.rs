@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::client::Client;
 use scraper::{Html, Selector};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::reddit_auth::RedditSession;
@@ -38,6 +38,79 @@ pub struct RedditPost {
     pub is_self: bool,
     #[serde(default, skip_serializing)]
     pub stickied: bool,
+}
+
+/// Persisted form of one post. Mirrors `RedditPost` instead of reusing its serde
+/// impls: `stickied` is `skip_serializing` for the API shape, and a field added
+/// there later must not vanish from the state file silently. Fields are already
+/// finalized (absolute permalink, lowercase subreddit), so restoring does not
+/// call `finalize`.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct PersistedRedditPost {
+    title: String,
+    url: String,
+    permalink: String,
+    subreddit: String,
+    score: i64,
+    author: String,
+    created_at: f64,
+    comment_count: u32,
+    domain: String,
+    is_self: bool,
+    stickied: bool,
+}
+
+impl From<&RedditPost> for PersistedRedditPost {
+    fn from(post: &RedditPost) -> Self {
+        Self {
+            title: post.title.clone(),
+            url: post.url.clone(),
+            permalink: post.permalink.clone(),
+            subreddit: post.subreddit.clone(),
+            score: post.score,
+            author: post.author.clone(),
+            created_at: post.created_at,
+            comment_count: post.comment_count,
+            domain: post.domain.clone(),
+            is_self: post.is_self,
+            stickied: post.stickied,
+        }
+    }
+}
+
+impl From<PersistedRedditPost> for RedditPost {
+    fn from(state: PersistedRedditPost) -> Self {
+        Self {
+            title: state.title,
+            url: state.url,
+            permalink: state.permalink,
+            subreddit: state.subreddit,
+            score: state.score,
+            author: state.author,
+            created_at: state.created_at,
+            comment_count: state.comment_count,
+            domain: state.domain,
+            is_self: state.is_self,
+            stickied: state.stickied,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_post(subreddit: &str, score: i64) -> RedditPost {
+    RedditPost {
+        title: "a post".into(),
+        url: String::new(),
+        permalink: format!("https://www.reddit.com/r/{subreddit}/comments/x"),
+        subreddit: subreddit.into(),
+        score,
+        author: "alice".into(),
+        created_at: 1_700_000_000.0,
+        comment_count: 3,
+        domain: String::new(),
+        is_self: false,
+        stickied: false,
+    }
 }
 
 impl RedditPost {
@@ -581,6 +654,36 @@ mod tests {
             is_self: false,
             stickied: false,
         }
+    }
+
+    #[test]
+    fn reddit_post_state_round_trips_all_fields() {
+        let post = RedditPost {
+            title: "a post".into(),
+            url: "https://example.com/x".into(),
+            permalink: "https://www.reddit.com/r/rust/comments/abc/x".into(),
+            subreddit: "rust".into(),
+            score: 42,
+            author: "alice".into(),
+            created_at: 1_700_000_000.5,
+            comment_count: 7,
+            domain: "example.com".into(),
+            is_self: false,
+            stickied: true,
+        };
+        let restored = RedditPost::from(PersistedRedditPost::from(&post));
+
+        assert_eq!(restored.title, post.title);
+        assert_eq!(restored.url, post.url);
+        assert_eq!(restored.permalink, post.permalink);
+        assert_eq!(restored.subreddit, post.subreddit);
+        assert_eq!(restored.score, post.score);
+        assert_eq!(restored.author, post.author);
+        assert_eq!(restored.created_at, post.created_at);
+        assert_eq!(restored.comment_count, post.comment_count);
+        assert_eq!(restored.domain, post.domain);
+        assert_eq!(restored.is_self, post.is_self);
+        assert_eq!(restored.stickied, post.stickied);
     }
 
     #[test]
