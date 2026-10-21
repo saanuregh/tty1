@@ -1,0 +1,14 @@
+amends "package://github.com/jdx/hk/releases/download/v2.7.1/hk@2.7.1#/Config.pkl"
+
+hooks {
+  ["pre-commit"] {
+    steps {
+      ["fmt-check"] {
+        check = "mise run fmt-check"
+      }
+      ["lint"] {
+        check = "mise run lint"
+      }
+    }
+  }
+}

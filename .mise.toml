@@ -1,11 +1,8 @@
 [tools]
 rust = { version = "1.99", components = "rust-analyzer" }
-tombi = "1.7"
-prek = "0.5"
+tombi = "1.8"
+hk = "2.7"
 biome = "2.5"
-
-[settings]
-experimental = true
 
 [env]
 _.file = ".env"

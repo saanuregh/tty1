@@ -32,7 +32,7 @@ reqwest = {
 }
 reqwest-middleware = "0.5"
 reqwest-tracing = "0.7"
-scraper = { version = "0.27", default-features = false }
+scraper = { version = "0.29", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # CSP script hashes. Base64 is a local helper, not a second dependency.
