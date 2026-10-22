@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          cache: true
+          install_args: --locked
+
+      - name: Install native TLS headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
+
+      - name: Check frontend bundles
+        run: mise run frontend-check
+
+      - name: Check formatting
+        run: mise run fmt-check
+
+      - name: Lint
+        run: mise run lint
+
+      - name: Test
+        run: mise run test
+
+      - name: Build release artifact
+        run: cargo build --release --locked --features vendored-tls
+
+      - name: Install browser test dependencies
+        run: |
+          mise exec -- bun install --frozen-lockfile
+          mise exec -- bunx playwright install --with-deps chromium
+
+      - name: Browser smoke test
+        run: mise run browser-test

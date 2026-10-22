@@ -241,6 +241,16 @@ a.source-name:hover {
 	display: block;
 }
 
+.stories[data-loading]::after,
+.repos[data-loading]::after,
+.reddit-posts[data-loading]::after {
+	content: "loading…";
+	display: block;
+	padding: 16px;
+	color: var(--text-meta);
+	font-size: 12px;
+}
+
 /* Item lists */
 
 .stories,
@@ -476,24 +486,48 @@ a.source-name:hover {
 	font-size: 12px;
 	line-height: 1.4;
 	margin-bottom: 4px;
+	position: relative;
+	cursor: pointer;
+}
+
+.repo-desc > summary {
 	display: -webkit-box;
 	-webkit-line-clamp: 2;
 	line-clamp: 2;
 	-webkit-box-orient: vertical;
 	overflow: hidden;
-	cursor: pointer;
+	padding-right: 14px;
 }
 
-.repo-desc.expanded {
+.repo-desc[open] > summary {
 	-webkit-line-clamp: unset;
 	line-clamp: unset;
+}
+
+.repo-desc > summary::-webkit-details-marker {
+	display: none;
+}
+
+.repo-desc > summary::after {
+	content: "›";
+	position: absolute;
+	right: 0;
+	top: -1px;
+	font-size: 14px;
+	line-height: 1;
+	color: var(--text-muted);
+	transition: transform 0.15s;
+}
+
+.repo-desc[open] > summary::after {
+	transform: rotate(90deg);
 }
 
 .lang-dot {
 	display: inline-block;
 	width: 8px;
 	height: 8px;
-	border-radius: 50%;
+	vertical-align: middle;
 	flex-shrink: 0;
 }
 
@@ -511,7 +545,6 @@ a.source-name:hover {
 	color: var(--accent-reddit);
 	font-size: 11px;
 	margin-left: 6px;
-	opacity: 0.7;
 }
 
 .reddit-domain {
@@ -706,6 +739,11 @@ a.source-name:hover {
 		border: none;
 	}
 	.last-updated {
+		display: flex;
+		padding: 6px 12px;
+	}
+	.last-updated-time,
+	.last-updated .sep {
 		display: none;
 	}
 	.swipe-dots {

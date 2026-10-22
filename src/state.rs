@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
 
 use chrono::DateTime;
 use serde::de::DeserializeOwned;
@@ -50,24 +51,68 @@ struct SessionFile {
     session: PersistedRedditSession,
 }
 
+enum WriteRequest {
+    Feed(Vec<u8>),
+    Session(Vec<u8>),
+    ClearSession,
+    Flush(Sender<()>),
+}
+
 #[derive(Clone)]
 pub struct StateStore {
     dir: PathBuf,
+    writer: Option<Sender<WriteRequest>>,
 }
 
 impl StateStore {
     pub fn from_config() -> Self {
         let dir = config::state_dir();
         tracing::debug!(path = %dir.display(), "state: directory");
-        Self::new(dir)
+        Self::with_writer(dir)
     }
 
+    #[cfg(test)]
     fn new(dir: PathBuf) -> Self {
-        Self { dir }
+        Self { dir, writer: None }
+    }
+
+    /// Disk writes are serialized on a dedicated thread. A process killed
+    /// before the queue drains loses the newest snapshot, but the previous
+    /// atomically replaced file remains valid.
+    fn with_writer(dir: PathBuf) -> Self {
+        let (writer, requests) = mpsc::channel();
+        let writer_dir = dir.clone();
+        std::thread::Builder::new()
+            .name("state-writer".into())
+            .spawn(move || {
+                while let Ok(request) = requests.recv() {
+                    match request {
+                        WriteRequest::Flush(done) => {
+                            let _ = done.send(());
+                        }
+                        request => apply_write(&writer_dir, request),
+                    }
+                }
+            })
+            .expect("failed to start state writer");
+        Self {
+            dir,
+            writer: Some(writer),
+        }
     }
 
     fn path(&self, file: &str) -> PathBuf {
         self.dir.join(file)
+    }
+
+    pub fn flush(&self) {
+        let Some(writer) = &self.writer else {
+            return;
+        };
+        let (done, finished) = mpsc::channel();
+        if writer.send(WriteRequest::Flush(done)).is_ok() {
+            let _ = finished.recv();
+        }
     }
 
     pub fn load_feed(&self) -> Option<DataSnapshot> {
@@ -164,12 +209,23 @@ impl StateStore {
                 .collect(),
         };
 
-        let path = self.path(FEED_FILE);
-        match write_json(&path, &file) {
-            Ok(()) => tracing::debug!(path = %path.display(), "state: feed saved"),
+        let bytes = match serde_json::to_vec(&file) {
+            Ok(bytes) => bytes,
             Err(error) => {
-                tracing::warn!(path = %path.display(), error = %error, "state: feed save failed")
+                tracing::warn!(error = %error, "state: feed serialization failed");
+                return;
             }
+        };
+        self.write_or_queue(WriteRequest::Feed(bytes));
+    }
+
+    fn write_or_queue(&self, request: WriteRequest) {
+        if let Some(writer) = &self.writer {
+            if let Err(error) = writer.send(request) {
+                tracing::warn!(error = %error, "state: writer thread stopped");
+            }
+        } else {
+            apply_write(&self.dir, request);
         }
     }
 
@@ -190,31 +246,23 @@ impl StateStore {
     }
 
     pub fn save_reddit_session(&self, session: &RedditSession) {
-        let Some(persisted) = session.persist() else {
-            self.clear_session();
-            return;
+        let request = match session.persist() {
+            Some(persisted) => match serde_json::to_vec(&SessionFile {
+                version: SESSION_FORMAT_VERSION,
+                session: persisted,
+            }) {
+                Ok(bytes) => WriteRequest::Session(bytes),
+                Err(error) => {
+                    tracing::warn!(error = %error, "state: session serialization failed");
+                    return;
+                }
+            },
+            None => WriteRequest::ClearSession,
         };
-
-        if let Err(error) = self.write_session(&persisted) {
-            let path = self.path(SESSION_FILE);
-            tracing::warn!(path = %path.display(), error = %error, "state: session save failed");
-        }
+        self.write_or_queue(request);
     }
 
-    /// A rejected or absent identity must not survive on disk and be restored.
-    fn clear_session(&self) {
-        let path = self.path(SESSION_FILE);
-        match fs::remove_file(&path) {
-            Ok(()) => tracing::info!("state: session cleared"),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => tracing::warn!(
-                path = %path.display(),
-                error = %error,
-                "state: session clear failed"
-            ),
-        }
-    }
-
+    #[cfg(test)]
     fn write_session(&self, session: &PersistedRedditSession) -> io::Result<()> {
         write_json(
             &self.path(SESSION_FILE),
@@ -223,6 +271,47 @@ impl StateStore {
                 session: session.clone(),
             },
         )
+    }
+}
+
+fn apply_write(dir: &Path, request: WriteRequest) {
+    match request {
+        WriteRequest::Feed(bytes) => {
+            let path = dir.join(FEED_FILE);
+            match write_atomic(&path, &bytes) {
+                Ok(()) => tracing::debug!(path = %path.display(), "state: feed saved"),
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), error = %error, "state: feed save failed")
+                }
+            }
+        }
+        WriteRequest::Session(bytes) => {
+            let path = dir.join(SESSION_FILE);
+            match write_atomic(&path, &bytes) {
+                Ok(()) => tracing::debug!(path = %path.display(), "state: session saved"),
+                Err(error) => {
+                    tracing::warn!(path = %path.display(), error = %error, "state: session save failed")
+                }
+            }
+        }
+        WriteRequest::ClearSession => clear_session(dir),
+        WriteRequest::Flush(done) => {
+            let _ = done.send(());
+        }
+    }
+}
+
+/// A rejected or absent identity must not survive on disk and be restored.
+fn clear_session(dir: &Path) {
+    let path = dir.join(SESSION_FILE);
+    match fs::remove_file(&path) {
+        Ok(()) => tracing::info!("state: session cleared"),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => tracing::warn!(
+            path = %path.display(),
+            error = %error,
+            "state: session clear failed"
+        ),
     }
 }
 
@@ -245,6 +334,7 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     }
 }
 
+#[cfg(test)]
 fn write_json<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     write_atomic(path, &bytes)
@@ -333,6 +423,20 @@ mod tests {
             ]),
             last_fetched: Utc.timestamp_opt(1_700_000_000, 0).single().unwrap(),
         }
+    }
+
+    #[test]
+    fn writer_flushes_queued_feed() {
+        let dir = temp_dir("writer-flush");
+        let store = StateStore::with_writer(dir.clone());
+        store.save_feed(&sample_data());
+        store.flush();
+
+        let restored = StateStore::new(dir.clone())
+            .load_feed()
+            .expect("queued feed restored");
+        assert_eq!(restored.last_fetched, sample_data().last_fetched);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

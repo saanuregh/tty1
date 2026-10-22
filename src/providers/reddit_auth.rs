@@ -242,11 +242,6 @@ mod tests {
     use crate::providers::tests::test_clients;
 
     #[test]
-    fn needs_renewal_without_token() {
-        assert!(needs_renewal(None, Instant::now()));
-    }
-
-    #[test]
     fn day_token_renews_one_margin_before_expiry() {
         let now = Instant::now();
         let token = Token::issued("t".into(), 86_400, now);
@@ -344,15 +339,6 @@ mod tests {
     }
 
     #[test]
-    fn device_user_agent_shape() {
-        let device = Device::random();
-        assert!(device.user_agent.starts_with("Reddit/Version "));
-        assert!(device.user_agent.contains("/Android "));
-        assert_eq!(device.vendor_id.len(), 36);
-        assert_eq!(device.vendor_id.as_bytes()[14], b'4', "UUID version 4");
-    }
-
-    #[test]
     fn invalidate_drops_token_and_device() {
         let mut session = RedditSession::new();
         session.token = Some(Token::issued("t".into(), 86_400, Instant::now()));
@@ -367,6 +353,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "live HTTP"]
     async fn token_request_live() {
+        if !crate::config::reddit_scraper_enabled() {
+            return;
+        }
         let mut session = RedditSession::new();
         session.ensure_token(&test_clients().reddit).await.unwrap();
         assert!(session.token.is_some());

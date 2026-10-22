@@ -4,12 +4,15 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
-use crate::cache::{DataSnapshot, HtmlSnapshot, SharedData, SharedHtml};
+use crate::cache::{
+    DataSnapshot, FragmentSnapshot, HtmlSnapshot, SharedData, SharedFragments, SharedHtml,
+};
 use crate::client::Client;
 use crate::config;
 use crate::providers::reddit::{RedditFeed, RedditFetch};
 use crate::providers::reddit_auth::RedditSession;
 use crate::providers::{FetchError, error_chain, github, hackernews, reddit};
+use crate::render::View;
 use crate::state::StateStore;
 
 /// Two loops write the shared snapshot: HN + GitHub, and Reddit. Each holds
@@ -22,14 +25,14 @@ static SNAPSHOT_WRITE_LOCK: Mutex<()> = Mutex::new(());
 pub async fn run_scraper(
     data: SharedData,
     html: SharedHtml,
+    fragments: SharedFragments,
     client: Client,
     interval: Duration,
     story_count: usize,
     store: StateStore,
 ) {
     loop {
-        fetch_and_update(&data, &client, story_count, &store).await;
-        rebuild_html(&data, &html).await;
+        fetch_and_update(&data, &html, &fragments, &client, story_count, &store).await;
         let sleep_dur = jittered_interval(interval, config::SCRAPE_JITTER_SECS);
         tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next scrape");
         tokio::time::sleep(sleep_dur).await;
@@ -41,6 +44,7 @@ pub async fn run_scraper(
 pub async fn run_reddit_scraper(
     data: SharedData,
     html: SharedHtml,
+    fragments: SharedFragments,
     client: Client,
     store: StateStore,
 ) {
@@ -53,8 +57,9 @@ pub async fn run_reddit_scraper(
     };
     let interval = Duration::from_secs(config::REDDIT_SCRAPE_INTERVAL_SECS);
     loop {
-        fetch_and_update_reddit(&data, &client, &mut session, &store).await;
-        rebuild_html(&data, &html).await;
+        if fetch_and_update_reddit(&data, &client, &mut session, &store).await {
+            rebuild_snapshots(&data, &html, &fragments).await;
+        }
         let sleep_dur = jittered_interval(interval, config::REDDIT_SCRAPE_JITTER_SECS);
         tracing::debug!(sleep_secs = sleep_dur.as_secs(), "next reddit scrape");
         tokio::time::sleep(sleep_dur).await;
@@ -67,25 +72,81 @@ fn jittered_interval(interval: Duration, jitter_secs: u64) -> Duration {
     interval - Duration::from_secs(jitter_secs) + jitter
 }
 
-/// Separate from scraper: re-renders HTML every minute so relative timestamps ("3h ago")
-/// stay fresh between data fetches.
+/// Separate from scraper: re-renders the shell every minute so server-rendered
+/// relative timestamps stay fresh for no-JS/first-paint clients. Fragments are
+/// immutable per data version and are refreshed in the browser after insertion.
 pub async fn run_html_refresher(data: SharedData, html: SharedHtml, interval: Duration) {
     loop {
         tokio::time::sleep(interval).await;
         if data.load().last_fetched.timestamp() > 0 {
-            rebuild_html(&data, &html).await;
+            rebuild_shell(&data, &html).await;
         }
     }
 }
 
-async fn rebuild_html(data: &SharedData, html: &SharedHtml) {
+/// Data changes rebuild both stores; fragments swap first so a poll that sees
+/// the new shell version can already fetch matching fragments.
+async fn rebuild_snapshots(data: &SharedData, html: &SharedHtml, fragments: &SharedFragments) {
     let snap = data.load_full();
+    let check = snap.clone();
+    let start = Instant::now();
+    let built = tokio::task::spawn_blocking(move || {
+        let fragments = FragmentSnapshot::from_data(&snap);
+        let html = HtmlSnapshot::from_data(&snap, &View::default());
+        (fragments, html)
+    })
+    .await;
+
+    match built {
+        Ok((fragments_snapshot, Some(html_snapshot))) => {
+            tracing::debug!(
+                elapsed_ms = start.elapsed().as_millis(),
+                fragments = fragments_snapshot.fragments.len(),
+                "html and fragments rendered"
+            );
+            let _write = SNAPSHOT_WRITE_LOCK
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if !Arc::ptr_eq(&data.load_full(), &check) {
+                tracing::debug!("snapshots superseded, keeping newer data");
+                return;
+            }
+            fragments.store(Arc::new(fragments_snapshot));
+            html.store(Arc::new(html_snapshot));
+        }
+        Ok((fragments_snapshot, None)) => {
+            tracing::error!("failed to build HTML snapshot, keeping previous");
+            let _write = SNAPSHOT_WRITE_LOCK
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if Arc::ptr_eq(&data.load_full(), &check) {
+                fragments.store(Arc::new(fragments_snapshot));
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "HTML rebuild task panicked, keeping previous");
+        }
+    }
+}
+
+/// Time-only refresh: fragments are immutable per data version, so only the
+/// shell needs new relative timestamps.
+async fn rebuild_shell(data: &SharedData, html: &SharedHtml) {
+    let snap = data.load_full();
+    let check = snap.clone();
     let start = Instant::now();
     // spawn_blocking: Maud rendering is CPU-bound and would block the async runtime.
-    match tokio::task::spawn_blocking(move || HtmlSnapshot::from_data(&snap)).await {
+    match tokio::task::spawn_blocking(move || HtmlSnapshot::from_data(&snap, &View::default()))
+        .await
+    {
         Ok(Some(new_html)) => {
             tracing::debug!(elapsed_ms = start.elapsed().as_millis(), "html rendered");
-            html.store(Arc::new(new_html));
+            let _write = SNAPSHOT_WRITE_LOCK
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if Arc::ptr_eq(&data.load_full(), &check) {
+                html.store(Arc::new(new_html));
+            }
         }
         Ok(None) => tracing::error!("failed to build HTML snapshot, keeping previous"),
         Err(e) => tracing::error!(error = %e, "HTML rebuild task panicked, keeping previous"),
@@ -135,64 +196,106 @@ where
 
 async fn fetch_and_update(
     data: &SharedData,
+    html: &SharedHtml,
+    fragments: &SharedFragments,
     client: &Client,
     story_count: usize,
     store: &StateStore,
 ) {
     tracing::info!("scrape cycle starting");
 
-    let start = Instant::now();
-
-    // Both providers fetch concurrently — each handles its own rate limiting internally.
-    let (hn_fresh, gh_fresh) = tokio::join!(
-        hackernews::fetch_all_pages(client, story_count),
-        github::fetch_all_trending(client),
+    // Publish and render each provider as it finishes. HN is ready in seconds,
+    // GitHub paces 54 requests, so waiting for both would leave the page on the
+    // loading screen for over a minute.
+    tokio::join!(
+        async {
+            let fresh = hackernews::fetch_all_pages(client, story_count).await;
+            if publish_hn(data, fresh, store) {
+                rebuild_snapshots(data, html, fragments).await;
+            }
+        },
+        async {
+            let fresh = github::fetch_all_trending(client).await;
+            if publish_gh(data, fresh, store) {
+                rebuild_snapshots(data, html, fragments).await;
+            }
+        },
     );
+}
 
+/// Strictly increasing, so two publishes in one wall-clock second still get
+/// distinct versions and ETags.
+fn next_fetched(current: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+    let now = Utc::now();
+    if now.timestamp() > current.timestamp() {
+        now
+    } else {
+        current + chrono::TimeDelta::seconds(1)
+    }
+}
+
+fn publish_hn(data: &SharedData, fresh: hackernews::HnFetch, store: &StateStore) -> bool {
     let _write = SNAPSHOT_WRITE_LOCK
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
     let current = data.load();
+    let (hn_pages, hn_ok) = merge_keyed(fresh, &current.hn_pages, "hn");
 
-    let (hn_pages, hn_ok) = merge_keyed(hn_fresh, &current.hn_pages, "hn");
-    let (gh_trending, gh_ok) = merge_keyed(gh_fresh, &current.gh_trending, "github");
-
-    // Per-key retention makes an outage invisible in the UI, so the log is the
-    // only signal that a whole source is down.
-    for (label, ok, total) in [
-        ("hn", hn_ok, hn_pages.len()),
-        ("github", gh_ok, gh_trending.len()),
-    ] {
-        if total > 0 && ok == 0 {
-            tracing::error!(provider = label, keys = total, "every key failed");
-        }
+    if !hn_pages.is_empty() && hn_ok == 0 {
+        tracing::error!(provider = "hn", keys = hn_pages.len(), "every key failed");
+        return false;
     }
-
-    // Do not advance the clock on a total failure: the footer would claim the
-    // data is fresh when nothing changed.
-    let last_fetched = if hn_ok + gh_ok > 0 {
-        Utc::now()
-    } else {
-        current.last_fetched
-    };
 
     tracing::info!(
         hn_fresh = hn_ok,
         hn_stale = hn_pages.len() - hn_ok,
-        gh_fresh = gh_ok,
-        gh_stale = gh_trending.len() - gh_ok,
-        elapsed_secs = start.elapsed().as_secs(),
-        "data cache updated"
+        "hn cache updated"
     );
+    let last_fetched = next_fetched(current.last_fetched);
 
     let next = Arc::new(DataSnapshot {
         hn_pages,
+        gh_trending: current.gh_trending.clone(),
+        reddit_feed: current.reddit_feed.clone(),
+        last_fetched,
+    });
+    data.store(next.clone());
+    store.save_feed(&next);
+    hn_ok > 0
+}
+
+fn publish_gh(data: &SharedData, fresh: github::GhFetch, store: &StateStore) -> bool {
+    let _write = SNAPSHOT_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    let current = data.load();
+    let (gh_trending, gh_ok) = merge_keyed(fresh, &current.gh_trending, "github");
+
+    if !gh_trending.is_empty() && gh_ok == 0 {
+        tracing::error!(
+            provider = "github",
+            keys = gh_trending.len(),
+            "every key failed"
+        );
+        return false;
+    }
+
+    tracing::info!(
+        gh_fresh = gh_ok,
+        gh_stale = gh_trending.len() - gh_ok,
+        "github cache updated"
+    );
+    let last_fetched = next_fetched(current.last_fetched);
+
+    let next = Arc::new(DataSnapshot {
+        hn_pages: current.hn_pages.clone(),
         gh_trending,
         reddit_feed: current.reddit_feed.clone(),
         last_fetched,
     });
     data.store(next.clone());
     store.save_feed(&next);
+    gh_ok > 0
 }
 
 async fn fetch_and_update_reddit(
@@ -200,7 +303,7 @@ async fn fetch_and_update_reddit(
     client: &Client,
     session: &mut RedditSession,
     store: &StateStore,
-) {
+) -> bool {
     let start = Instant::now();
 
     let subreddits = reddit::plan_cycle(&data.load().reddit_feed, &mut fastrand::Rng::new());
@@ -219,12 +322,6 @@ async fn fetch_and_update_reddit(
         tracing::error!(provider = "reddit", keys = requested, "every key failed");
     }
 
-    let last_fetched = if reddit_ok > 0 {
-        Utc::now()
-    } else {
-        current.last_fetched
-    };
-
     tracing::info!(
         reddit_fresh = reddit_ok,
         reddit_failed = requested - reddit_ok,
@@ -232,6 +329,13 @@ async fn fetch_and_update_reddit(
         elapsed_secs = start.elapsed().as_secs(),
         "reddit cache updated"
     );
+
+    if reddit_ok == 0 {
+        drop(_write);
+        store.save_reddit_session(session);
+        return false;
+    }
+    let last_fetched = next_fetched(current.last_fetched);
 
     let next = Arc::new(DataSnapshot {
         hn_pages: current.hn_pages.clone(),
@@ -243,6 +347,7 @@ async fn fetch_and_update_reddit(
     store.save_feed(&next);
     drop(_write);
     store.save_reddit_session(session);
+    true
 }
 
 /// `merge_keyed` over the fetched subreddits, then every configured subreddit
@@ -272,6 +377,15 @@ mod tests {
 
     fn current() -> HashMap<&'static str, Vec<u8>> {
         HashMap::from([("a", vec![1, 2]), ("b", vec![3])])
+    }
+
+    #[test]
+    fn publish_versions_are_strictly_increasing() {
+        let now = Utc::now();
+        let next = next_fetched(now);
+
+        assert!(next.timestamp() > now.timestamp());
+        assert!(next_fetched(next).timestamp() > next.timestamp());
     }
 
     #[test]

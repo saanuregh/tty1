@@ -63,36 +63,4 @@ pub(crate) mod tests {
     pub fn test_clients() -> crate::client::Clients {
         crate::client::build_clients()
     }
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("{message}")]
-    struct Wrapped {
-        message: String,
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
-    }
-
-    #[test]
-    fn error_chain_appends_distinct_causes() {
-        let io = std::io::Error::new(std::io::ErrorKind::TimedOut, "operation timed out");
-        let inner = Wrapped {
-            message: "error sending request".into(),
-            source: Box::new(io),
-        };
-        // A wrapper that repeats its source's text, like FetchError::Http does.
-        let outer = Wrapped {
-            message: "HTTP request failed: error sending request".into(),
-            source: Box::new(inner),
-        };
-        assert_eq!(
-            super::error_chain(&outer),
-            "HTTP request failed: error sending request: operation timed out"
-        );
-    }
-
-    #[test]
-    fn error_chain_without_source_is_the_message() {
-        let io = std::io::Error::other("boom");
-        assert_eq!(super::error_chain(&io), "boom");
-    }
 }

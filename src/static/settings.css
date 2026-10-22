@@ -10,6 +10,10 @@
 	gap: 0 32px;
 }
 
+html:not(.js) .settings-grid {
+	display: none;
+}
+
 .settings-aside {
 	display: flex;
 	flex-direction: column;
@@ -72,7 +76,7 @@
 .reset-btn,
 .share-btn {
 	background: var(--bg-body);
-	color: var(--text-meta);
+	color: var(--text-secondary);
 	border: 1px solid var(--border-input);
 	border-radius: 4px;
 	padding: 6px 16px;
@@ -190,10 +194,16 @@
 	border: 1px solid var(--border-input);
 	border-radius: 4px;
 	cursor: pointer;
+	position: relative;
 	transition:
 		border-color 0.15s,
 		color 0.15s,
 		opacity 0.15s;
+}
+
+.checkbox-item:has(input:focus-visible) {
+	outline: 2px solid var(--text-secondary);
+	outline-offset: 1px;
 }
 
 .checkbox-item:hover {
@@ -211,7 +221,10 @@
 }
 
 .checkbox-item input[type="checkbox"] {
-	display: none;
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	opacity: 0;
 }
 
 /* Share row */
@@ -289,7 +302,7 @@
 	fill: currentColor;
 }
 
-/* No-JS fallback — hiding style is inline in <noscript> */
+/* No-JS fallback — the grid is hidden by html:not(.js) above. */
 .noscript-msg {
 	color: var(--text-meta);
 	font-size: 13px;

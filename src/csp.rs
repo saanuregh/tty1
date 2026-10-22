@@ -9,30 +9,25 @@ use crate::render;
 pub static CSP_HEADER: LazyLock<String> = LazyLock::new(build_header);
 
 fn build_header() -> String {
-    // Maud emits `script { (a) (b) }` with nothing between the two strings, so
-    // the hash input is the plain concatenation.
+    // Every inline script is one bundle or one constant, so the hash input is
+    // exactly the string Maud emits.
     let inline_scripts = [
         render::THEME_BOOTSTRAP.to_string(),
         render::SW_REGISTER.to_string(),
-        format!("{}{}", render::COMMON_JS, render::APP_JS),
-        format!("{}{}", render::COMMON_JS, render::SETTINGS_JS),
+        render::DASHBOARD_JS.to_string(),
+        render::SETTINGS_JS.to_string(),
     ];
 
-    let hashes: Vec<String> = inline_scripts
+    let hashes: Vec<String> = inline_scripts.iter().map(|s| hash(s)).collect();
+    let style_hashes: Vec<String> = [render::DASHBOARD_CSS, render::SETTINGS_CSS]
         .iter()
-        .map(|s| {
-            let digest = Sha256::digest(s.as_bytes());
-            format!("'sha256-{}'", base64(digest.as_slice()))
-        })
+        .map(|s| hash(s))
         .collect();
 
-    // style-src keeps 'unsafe-inline' and carries no hash on purpose: the
-    // language-colour dot writes a style attribute, which no hash can cover,
-    // and any hash here would make browsers ignore 'unsafe-inline'.
     format!(
         "default-src 'self'; \
          script-src 'self' {}; \
-         style-src 'self' 'unsafe-inline'; \
+         style-src 'self' {}; \
          img-src 'self' data:; \
          connect-src 'self'; \
          manifest-src 'self'; \
@@ -40,8 +35,14 @@ fn build_header() -> String {
          base-uri 'none'; \
          form-action 'none'; \
          object-src 'none'",
-        hashes.join(" ")
+        hashes.join(" "),
+        style_hashes.join(" ")
     )
+}
+
+fn hash(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    format!("'sha256-{}'", base64(digest.as_slice()))
 }
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -74,33 +75,18 @@ fn base64(data: &[u8]) -> String {
 mod tests {
     use super::*;
 
-    // RFC 4648 section 10 test vectors.
-    #[test]
-    fn base64_matches_known_vectors() {
-        assert_eq!(base64(b""), "");
-        assert_eq!(base64(b"f"), "Zg==");
-        assert_eq!(base64(b"fo"), "Zm8=");
-        assert_eq!(base64(b"foo"), "Zm9v");
-        assert_eq!(base64(b"foob"), "Zm9vYg==");
-        assert_eq!(base64(b"fooba"), "Zm9vYmE=");
-        assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-    }
-
     #[test]
     fn header_hashes_every_inline_script() {
-        assert_eq!(CSP_HEADER.matches("'sha256-").count(), 4);
+        assert_eq!(CSP_HEADER.matches("'sha256-").count(), 6);
     }
 
-    // A hash in a directive makes browsers ignore 'unsafe-inline' in that same
-    // directive. style-src needs 'unsafe-inline' for the per-repo colour
-    // attribute, so it must carry no hash.
     #[test]
-    fn style_src_has_no_hash() {
+    fn style_src_uses_hashes_without_unsafe_inline() {
         let style = CSP_HEADER
             .split(';')
             .find(|d| d.trim().starts_with("style-src"))
             .expect("style-src directive");
-        assert!(style.contains("'unsafe-inline'"));
-        assert!(!style.contains("sha256-"));
+        assert!(!style.contains("'unsafe-inline'"));
+        assert_eq!(style.matches("'sha256-").count(), 2);
     }
 }

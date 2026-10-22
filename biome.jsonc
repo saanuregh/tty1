@@ -1,7 +1,7 @@
-// Must stay .jsonc: biome.json rejects comments and silently falls back to
-// defaults, which drops the .gitignore exclusion and lints all of target/.
+// Must stay .jsonc: Biome reads biome.json as strict JSON, so a comment there
+// is a configuration error.
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.9/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -9,7 +9,12 @@
 	},
 	"files": {
 		"ignoreUnknown": true,
-		"includes": ["**", "!.claude"]
+		"includes": [
+			"**",
+			"!.claude",
+			"!src/static/*.bundle.js",
+			"!src/static/*.bundle.css"
+		]
 	},
 	"formatter": {
 		"indentStyle": "tab"
@@ -21,8 +26,7 @@
 				"noSvgWithoutTitle": "off"
 			},
 			"correctness": {
-				// JS files share global scope via include_str!() — not modules
-				"noUnusedVariables": "off",
+				// Generated bundles are ignored above; source files are ES modules.
 				"noUnusedFunctionParameters": "off"
 			},
 			"suspicious": {

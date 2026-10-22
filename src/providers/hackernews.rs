@@ -129,10 +129,12 @@ pub async fn fetch_all_pages(client: &Client, count: usize) -> HnFetch {
     futures::future::join_all(futs).await.into_iter().collect()
 }
 
-/// Every item fetch failing is a source failure, not an empty page. A partial
-/// result above zero is kept: some stories are better than none.
-fn finalize_page(requested: usize, stories: Vec<HnStory>) -> Result<Vec<HnStory>, FetchError> {
-    if requested > 0 && stories.is_empty() {
+/// An empty HN page is a source failure, not a legitimate empty listing. An
+/// empty index response would otherwise overwrite the previous page and blank
+/// the panel. A partial result above zero is kept: some stories are better than
+/// none.
+fn finalize_page(stories: Vec<HnStory>) -> Result<Vec<HnStory>, FetchError> {
+    if stories.is_empty() {
         return Err(FetchError::EmptyPage);
     }
     Ok(stories)
@@ -145,7 +147,10 @@ async fn fetch_page(
 ) -> Result<Vec<HnStory>, FetchError> {
     let url = format!("{}/{endpoint}.json", config::HN_API_BASE);
     let ids: Vec<u64> = client.get(&url).send().await?.json().await?;
-    let requested = ids.len().min(count);
+    if ids.is_empty() {
+        warn!(endpoint, "hn index returned no ids");
+        return Err(FetchError::EmptyPage);
+    }
 
     let stories: Vec<HnStory> = stream::iter(ids.into_iter().take(count))
         .map(|id| {
@@ -163,7 +168,7 @@ async fn fetch_page(
         .collect()
         .await;
 
-    finalize_page(requested, stories)
+    finalize_page(stories)
 }
 
 async fn fetch_item(client: &Client, url: &str) -> Result<HnStory, FetchError> {
@@ -244,15 +249,10 @@ mod tests {
     }
 
     #[test]
-    fn total_item_failure_is_an_error() {
+    fn empty_page_is_an_error() {
         assert!(matches!(
-            finalize_page(30, Vec::new()),
+            finalize_page(Vec::new()),
             Err(FetchError::EmptyPage)
         ));
-    }
-
-    #[test]
-    fn empty_id_list_is_not_an_error() {
-        assert!(finalize_page(0, Vec::new()).unwrap().is_empty());
     }
 }

@@ -1,8 +1,9 @@
 [tools]
-rust = { version = "1.99", components = "rust-analyzer" }
+rust = { version = "1.99", components = ["rust-analyzer", "clippy", "rustfmt"] }
 tombi = "1.8"
 hk = "2.7"
 biome = "2.5"
+bun = "1.4.4"
 
 [env]
 _.file = ".env"
@@ -19,7 +20,7 @@ run = "cargo run --release"
 description = "Format all files"
 run = [
   "cargo fmt",
-  "tombi format *.toml",
+  "tombi format Cargo.toml .mise.toml",
   "biome format --write",
 ]
 
@@ -27,28 +28,75 @@ run = [
 description = "Check formatting without writing"
 run = [
   "cargo fmt --check",
-  "tombi format --check *.toml",
+  "tombi format --check Cargo.toml .mise.toml",
   "biome format",
 ]
+
+[tasks.frontend]
+description = "Bundle frontend modules and CSS into inline assets"
+run = [
+  "mise exec -- bun build src/static/js/dashboard.ts --outfile src/static/dashboard.bundle.js --target=browser --format=iife --minify",
+  "mise exec -- bun build src/static/js/settings.ts --outfile src/static/settings.bundle.js --target=browser --format=iife --minify",
+  "mise exec -- bun build src/static/css/dashboard.css --outfile src/static/dashboard.bundle.css --target=browser --minify",
+  "mise exec -- bun build src/static/css/settings.css --outfile src/static/settings.bundle.css --target=browser --minify",
+]
+
+[tasks.frontend-check]
+description = "Verify committed frontend bundles are current"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+mise exec -- bun build src/static/js/dashboard.ts --outfile "$tmp/dashboard.bundle.js" --target=browser --format=iife --minify
+mise exec -- bun build src/static/js/settings.ts --outfile "$tmp/settings.bundle.js" --target=browser --format=iife --minify
+mise exec -- bun build src/static/css/dashboard.css --outfile "$tmp/dashboard.bundle.css" --target=browser --minify
+mise exec -- bun build src/static/css/settings.css --outfile "$tmp/settings.bundle.css" --target=browser --minify
+for name in dashboard settings; do
+  for ext in js css; do
+    if ! cmp -s "src/static/$name.bundle.$ext" "$tmp/$name.bundle.$ext"; then
+      echo "$name bundle.$ext is stale; run mise run frontend" >&2
+      exit 1
+    fi
+  done
+done
+"""
+
+[tasks.browser-test]
+description = "Run the Playwright browser smoke test against a fixture state"
+run = [
+  "cargo build",
+  "bun run tests/browser-smoke.js",
+]
+
+[tasks.typecheck]
+description = "Type-check frontend TypeScript"
+run = "mise exec -- bun check"
 
 [tasks.lint]
 description = "Run all linters"
 run = [
+  "mise run frontend-check",
+  "mise run typecheck",
   "biome check",
-  "cargo clippy -- -D warnings",
+  "cargo clippy --locked -- -D warnings",
 ]
 
 [tasks.test]
 description = "Run tests"
-run = "cargo test"
+run = "cargo test --locked"
 
 [tasks.build]
 description = "Build debug binary"
 run = "cargo build"
 
 [tasks.build-release]
-description = "Build optimized release binary"
+description = "Build optimized release binary with system TLS (OpenSSL on Linux)"
 run = "cargo build --release"
+
+[tasks.build-release-vendored]
+description = "Build self-contained release binary with vendored OpenSSL"
+run = "cargo build --release --locked --features vendored-tls"
 
 [tasks.docker]
 description = "Build and run with Docker Compose"

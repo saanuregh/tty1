@@ -2,13 +2,19 @@
 // changes are handled by stale-while-revalidate: the browser serves cached
 // content instantly and refreshes in background, so users get new content
 // on the next load without a version bump.
-const VERSION = "v3";
+const VERSION = "v6";
 const CACHE_NAME = `tty1-${VERSION}`;
 
 // "/" is deliberately absent: install runs on the first visit, which may land
 // during a cold start, and precaching the loading page would pin it as the
 // first paint of every later navigation. "/" is cached on first navigation.
-const PRECACHE = ["/manifest.json", "/icon.svg", "/favicon.svg"];
+const PRECACHE = [
+	"/manifest.json",
+	"/icon-192.png",
+	"/icon-512.png",
+	"/apple-touch-icon.png",
+	"/favicon.svg",
+];
 
 const OFFLINE_FALLBACK =
 	'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
@@ -19,6 +25,10 @@ const OFFLINE_FALLBACK =
 
 function isNoStore(response) {
 	return (response.headers.get("cache-control") || "").includes("no-store");
+}
+
+function isPrivate(response) {
+	return (response.headers.get("cache-control") || "").includes("private");
 }
 
 self.addEventListener("install", (event) => {
@@ -53,8 +63,31 @@ self.addEventListener("fetch", (event) => {
 	// Never cache API responses.
 	if (url.pathname.startsWith("/api/")) return;
 
+	// List fragments are versioned in the query string, so cache-first is safe
+	// and makes repeat visits and offline filter switches instant.
+	if (url.pathname.startsWith("/f/")) {
+		event.respondWith(
+			(async () => {
+				const cache = await caches.open(CACHE_NAME);
+				const cached = await cache.match(event.request);
+				if (cached) return cached;
+				const fresh = await fetch(event.request);
+				const requestedVersion = url.searchParams.get("v");
+				const isCustom = fresh.headers.get("x-tty1-custom") === "1";
+				if (
+					fresh.ok &&
+					fresh.headers.get("x-data-version") === requestedVersion &&
+					(!isPrivate(fresh) || isCustom)
+				)
+					await cache.put(event.request, fresh.clone());
+				return fresh;
+			})(),
+		);
+		return;
+	}
+
 	if (url.pathname === "/") {
-		// Only a document navigation gets the cache. A fetch() from app.js must
+		// Only a document navigation gets the cache. A fetch() from the dashboard bundle must
 		// reach the network, or the auto-update poll just reads this cache back.
 		if (event.request.mode !== "navigate") return;
 
@@ -62,35 +95,76 @@ self.addEventListener("fetch", (event) => {
 		event.respondWith(
 			(async () => {
 				const cache = await caches.open(CACHE_NAME);
-				const cached = await cache.match("/");
+				const cached = await cache.match(event.request);
 				const controller = new AbortController();
 				const timer = setTimeout(() => controller.abort(), 10000);
-				const fresh = fetch(event.request, {
+				const refresh = fetch(event.request, {
 					signal: controller.signal,
-				}).then((response) => {
-					clearTimeout(timer);
-					if (response.ok && !isNoStore(response))
-						cache.put("/", response.clone());
-					return response;
-				});
-				return cached || fresh;
-			})().catch(async () => {
-				const cached = await caches.match("/");
-				if (cached) return cached;
+				})
+					.then(async (response) => {
+						if (response.ok && !isNoStore(response))
+							await cache.put(event.request, response.clone());
+						return response;
+					})
+					.catch(() => null)
+					.finally(() => clearTimeout(timer));
+
+				if (cached) {
+					event.waitUntil(refresh);
+					return cached;
+				}
+
+				const fresh = await refresh;
+				if (fresh) return fresh;
+
+				const fallback =
+					(await caches.match(event.request)) || (await caches.match("/"));
+				if (fallback) return fallback;
 				return new Response(OFFLINE_FALLBACK, {
 					status: 503,
 					headers: { "Content-Type": "text/html; charset=utf-8" },
 				});
-			}),
+			})(),
 		);
 		return;
 	}
 
-	// Static assets: cache-first
+	// Precache list only. Other paths (notably /settings) must reach the
+	// network; caching them cache-first would pin an old page forever.
+	if (!PRECACHE.includes(url.pathname)) return;
+
 	event.respondWith(
 		(async () => {
-			const cached = await caches.match(event.request);
-			return cached || fetch(event.request);
+			const cache = await caches.open(CACHE_NAME);
+			const cached = await cache.match(event.request);
+			if (cached) return cached;
+			const fresh = await fetch(event.request);
+			if (fresh.ok) await cache.put(event.request, fresh.clone());
+			return fresh;
+		})(),
+	);
+});
+
+// The page reports the data version so fragments from older snapshots can be
+// dropped instead of accumulating across days.
+self.addEventListener("message", (event) => {
+	const version = event.data?.version;
+	if (event.data?.type !== "fragment-version" || !version) return;
+	event.waitUntil(
+		(async () => {
+			const cache = await caches.open(CACHE_NAME);
+			const requests = await cache.keys();
+			await Promise.all(
+				requests.map((request) => {
+					const url = new URL(request.url);
+					if (
+						url.pathname.startsWith("/f/") &&
+						url.searchParams.get("v") !== String(version)
+					)
+						return cache.delete(request);
+					return Promise.resolve(false);
+				}),
+			);
 		})(),
 	);
 });

@@ -1,6 +1,6 @@
 [package]
 name = "tty1"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.99"
 description = "Fast, minimal dashboard aggregating trending content from Hacker News, GitHub, and Reddit"
@@ -26,7 +26,7 @@ reqwest = {
     "deflate",
     "gzip",
     "json",
-    "native-tls-vendored",
+    "native-tls",
     "socks",
   ],
 }
@@ -40,7 +40,7 @@ sha2 = "0.11"
 thiserror = "2"
 tokio = {
   version = "1",
-  features = ["macros", "net", "rt-multi-thread", "signal", "time"],
+  features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"],
 }
 tower = { version = "0.5", features = ["timeout"] }
 tower-http = {
@@ -51,8 +51,16 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zstd = { version = "0.14", default-features = false }
 
+[features]
+default = []
+# Statically link OpenSSL for distroless/published images. Local builds use the
+# system OpenSSL and skip compiling openssl-src.
+vendored-tls = ["reqwest/native-tls-vendored"]
+
 [profile.release]
 opt-level = "z"
 strip = true
-lto = true
-codegen-units = 1
+# Thin LTO with parallel codegen is much faster to build than fat LTO with one
+# codegen unit. This app is I/O-bound, so the small size/perf trade is free.
+lto = "thin"
+codegen-units = 16

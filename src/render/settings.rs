@@ -1,11 +1,22 @@
-use maud::{PreEscaped, html};
+use maud::{Markup, PreEscaped, html};
 
 use super::shell::page_shell;
 use crate::config;
 
+fn keybind_row(keys: &[&str], desc: &str) -> Markup {
+    html! {
+        div.keybind-row {
+            @for key in keys {
+                span.keybind-key { (key) }
+            }
+            span.keybind-desc { (desc) }
+        }
+    }
+}
+
 pub fn render_settings_page() -> String {
     page_shell(
-        include_str!("../static/settings.css"),
+        super::SETTINGS_CSS,
         html! {
             main #main-content .settings {
                 header.settings-header {
@@ -13,7 +24,6 @@ pub fn render_settings_page() -> String {
                     h1 { "settings" }
                 }
                 noscript {
-                    style { ".settings-grid { display: none }" }
                     p.noscript-msg { "JavaScript is required for settings." }
                 }
 
@@ -46,7 +56,7 @@ pub fn render_settings_page() -> String {
                         }
 
                         section.settings-section {
-                            span.settings-label { "panels · drag to reorder" }
+                            span.settings-label { "panels · drag or use arrow keys to reorder" }
                             div.panel-toggles {
                                 button.panel-toggle.active data-panel="hn" {
                                     (PreEscaped(include_str!("../static/icons/hn.svg")))
@@ -96,7 +106,7 @@ pub fn render_settings_page() -> String {
                         section.settings-section {
                             span.settings-label { "share profile" }
                             div.share-row {
-                                input.share-url type="text" readonly;
+                                input.share-url type="text" aria-label="Share profile URL" readonly;
                                 button.share-btn { "copy link" }
                             }
                         }
@@ -110,52 +120,16 @@ pub fn render_settings_page() -> String {
                         section.settings-section {
                             span.settings-label { "keyboard shortcuts" }
                             div.keybind-list {
-                                div.keybind-row {
-                                    span.keybind-key { "h" }
-                                    span.keybind-key { "l" }
-                                    span.keybind-desc { "switch panels" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "j" }
-                                    span.keybind-key { "k" }
-                                    span.keybind-desc { "navigate items" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "f" }
-                                    span.keybind-desc { "focus filter" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "Enter" }
-                                    span.keybind-desc { "open link" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "Shift+Enter" }
-                                    span.keybind-desc { "open in new tab" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "c" }
-                                    span.keybind-desc { "open comments" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "x" }
-                                    span.keybind-desc { "expand description" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "r" }
-                                    span.keybind-desc { "refresh" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "t" }
-                                    span.keybind-desc { "toggle theme" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "Escape" }
-                                    span.keybind-desc { "unfocus" }
-                                }
-                                div.keybind-row {
-                                    span.keybind-key { "," }
-                                    span.keybind-desc { "settings / back" }
-                                }
+                                (keybind_row(&["h", "l"], "switch panels"))
+                                (keybind_row(&["j", "k"], "navigate items"))
+                                (keybind_row(&["f"], "focus filter"))
+                                (keybind_row(&["Enter"], "open link"))
+                                (keybind_row(&["Shift+Enter"], "open in new tab"))
+                                (keybind_row(&["c"], "open comments"))
+                                (keybind_row(&["r"], "refresh"))
+                                (keybind_row(&["t"], "toggle theme"))
+                                (keybind_row(&["Escape"], "unfocus"))
+                                (keybind_row(&[","], "settings / back"))
                             }
                         }
                         div.settings-footer {
@@ -168,7 +142,7 @@ pub fn render_settings_page() -> String {
                     }
                 }
             }
-            script { (PreEscaped(super::COMMON_JS)) (PreEscaped(super::SETTINGS_JS)) }
+            script { (PreEscaped(super::SETTINGS_JS)) }
         },
     )
     .into_string()

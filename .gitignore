@@ -24,3 +24,6 @@ docker-compose.override.yml
 
 # Persisted runtime state (may hold a Reddit token)
 /state/
+
+# Frontend test dependencies
+/node_modules/

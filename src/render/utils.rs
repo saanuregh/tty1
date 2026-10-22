@@ -16,7 +16,7 @@ pub fn fmt_num(n: u64) -> String {
     result
 }
 
-// Duplicated in static/app.js for client-side refresh — keep both in sync.
+// Duplicated in src/static/js/common.ts for client-side refresh — keep both in sync.
 const TIME_UNITS: &[(u64, &str)] = &[
     (31536000, "y"),
     (2592000, "mo"),

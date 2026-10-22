@@ -3,7 +3,6 @@ target/
 .gitignore
 .dockerignore
 .mise.toml
-.pre-commit-config.yaml
 .env
 .env.*
 state/
@@ -11,3 +10,9 @@ state/
 *.md
 .idea/
 .vscode/
+
+node_modules/
+tests/
+package.json
+bun.lock
+.notes/

@@ -306,13 +306,34 @@ fn parse_listing_json(body: &serde_json::Value) -> Result<Vec<RedditPost>, Fetch
         return Err(FetchError::EmptyPage);
     };
 
-    Ok(children
-        .iter()
-        .filter_map(|c| serde_json::from_value::<RedditPost>(c["data"].clone()).ok())
-        .filter(|p| !p.stickied && p.author != "[deleted]")
-        .take(config::REDDIT_POSTS_PER_SUB)
-        .map(RedditPost::finalize)
-        .collect())
+    let mut posts = Vec::with_capacity(config::REDDIT_POSTS_PER_SUB);
+    let mut malformed = 0;
+
+    for child in children {
+        match serde_json::from_value::<RedditPost>(child["data"].clone()) {
+            Ok(post) => {
+                if post.stickied || post.author == "[deleted]" {
+                    continue;
+                }
+                posts.push(post.finalize());
+                if posts.len() >= config::REDDIT_POSTS_PER_SUB {
+                    break;
+                }
+            }
+            Err(error) => {
+                malformed += 1;
+                tracing::warn!(%error, "reddit: dropping malformed post");
+            }
+        }
+    }
+
+    // A non-empty listing whose rows all fail to deserialize is schema drift,
+    // not an empty subreddit. Retain the previous posts instead of blanking it.
+    if !children.is_empty() && malformed == children.len() {
+        return Err(FetchError::EmptyPage);
+    }
+
+    Ok(posts)
 }
 
 // ===== Retained: old.reddit HTML (now behind a login) =====
@@ -473,27 +494,10 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "live HTTP"]
-    async fn test_fetch_subreddit() {
-        let clients = test_clients();
-        let result = fetch_subreddit(&clients.direct, REDDIT_SUBREDDITS[0])
-            .await
-            .unwrap();
-        assert!(!result.is_empty(), "all feed returned no posts");
-    }
-
-    #[tokio::test]
-    #[ignore = "live HTTP"]
-    async fn test_scrape_subreddit() {
-        let clients = test_clients();
-        let result = scrape_subreddit(&clients.direct, REDDIT_SUBREDDITS[0])
-            .await
-            .unwrap();
-        assert!(!result.is_empty(), "all feed returned no posts");
-    }
-
-    #[tokio::test]
-    #[ignore = "live HTTP"]
     async fn fetch_listing_live() {
+        if !crate::config::reddit_scraper_enabled() {
+            return;
+        }
         let clients = test_clients();
         let mut session = RedditSession::new();
         let mut rng = fastrand::Rng::new();
@@ -547,6 +551,27 @@ mod tests {
             parse_listing_json(&body),
             Err(FetchError::EmptyPage)
         ));
+    }
+
+    #[test]
+    fn all_malformed_children_is_empty_page() {
+        let body = listing(serde_json::json!([
+            { "kind": "t3", "data": { "score": null } },
+            { "kind": "t3", "data": { "title": 42 } },
+        ]));
+        assert!(matches!(
+            parse_listing_json(&body),
+            Err(FetchError::EmptyPage)
+        ));
+    }
+
+    #[test]
+    fn all_filtered_children_is_an_empty_ok() {
+        let body = listing(serde_json::json!([
+            child("pinned", "mod", true),
+            child("gone", "[deleted]", false),
+        ]));
+        assert!(parse_listing_json(&body).unwrap().is_empty());
     }
 
     #[test]

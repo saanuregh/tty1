@@ -142,7 +142,12 @@ fn parse_trending_html(html: &str) -> Result<Vec<TrendingRepo>, FetchError> {
         return Err(FetchError::EmptyPage);
     }
 
-    for article in document.select(&sel.article) {
+    let mut article_count = 0;
+    for article in document
+        .select(&sel.article)
+        .take(config::GITHUB_REPOS_PER_PAGE)
+    {
+        article_count += 1;
         let Some(repo_link) = article.select(&sel.h2_a).next() else {
             continue;
         };
@@ -195,6 +200,14 @@ fn parse_trending_html(html: &str) -> Result<Vec<TrendingRepo>, FetchError> {
         });
     }
 
+    if article_count > 0 && repos.is_empty() {
+        tracing::error!(
+            articles = article_count,
+            "github: article rows matched but no repos parsed — CSS selectors may be stale"
+        );
+        return Err(FetchError::EmptyPage);
+    }
+
     Ok(repos)
 }
 
@@ -232,5 +245,46 @@ mod tests {
     fn short_empty_page_is_not_an_error() {
         let repos = parse_trending_html("<html><body></body></html>").unwrap();
         assert!(repos.is_empty());
+    }
+
+    #[test]
+    fn rows_without_repo_links_are_an_error() {
+        let html = format!(
+            "<html><body><article class=\"Box-row\"><p>{}</p></article></body></html>",
+            "x".repeat(1200)
+        );
+        assert!(matches!(
+            parse_trending_html(&html),
+            Err(FetchError::EmptyPage)
+        ));
+    }
+
+    #[test]
+    fn parses_trending_rows() {
+        let html = r##"
+            <article class="Box-row">
+                <h2><a href="/alice/tty1">alice / tty1</a></h2>
+                <p class="col-9">a tiny dashboard</p>
+                <span itemprop="programmingLanguage">Rust</span>
+                <span class="repo-language-color" style="background-color: #dea584"></span>
+                <div class="f6 color-fg-muted">
+                    <a href="/alice/tty1/stargazers">1,234</a>
+                    <a href="/alice/tty1/forks">56</a>
+                </div>
+                <span class="d-inline-block float-sm-right">5 stars today</span>
+            </article>
+        "##;
+        let repos = parse_trending_html(html).unwrap();
+
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].author, "alice");
+        assert_eq!(repos[0].name, "tty1");
+        assert_eq!(repos[0].url, "https://github.com/alice/tty1");
+        assert_eq!(repos[0].description, "a tiny dashboard");
+        assert_eq!(repos[0].language.as_deref(), Some("Rust"));
+        assert_eq!(repos[0].language_color.as_deref(), Some("#dea584"));
+        assert_eq!(repos[0].stars, 1234);
+        assert_eq!(repos[0].forks, 56);
+        assert_eq!(repos[0].period_stars, "5 stars today");
     }
 }

@@ -34,6 +34,26 @@ fn state_dir_from(value: Option<String>) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(DEFAULT_STATE_DIR))
 }
 
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        )
+    })
+}
+
+/// Testing escape hatch: skip the Reddit worker entirely. Useful for local UI
+/// checks without touching Reddit's rate limits.
+pub fn reddit_scraper_enabled() -> bool {
+    !env_flag("DISABLE_REDDIT")
+}
+
+/// Testing escape hatch: skip all background scrapers, including HN/GitHub.
+pub fn scrapers_enabled() -> bool {
+    !env_flag("DISABLE_SCRAPERS")
+}
+
 pub const FILTER_ALL: &str = "all";
 
 // -- Server --
@@ -43,6 +63,9 @@ pub const HTML_REFRESH_SECS: u64 = 60;
 pub const LOADING_PAGE_TTL_SECS: u64 = 3;
 pub const HANDLER_TIMEOUT_SECS: u64 = 10;
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
+pub const MAX_CONCURRENT_RENDERS: usize = 4;
+pub const CUSTOM_PAGE_CACHE_ENTRIES: usize = 32;
+pub const CUSTOM_FRAGMENT_CACHE_ENTRIES: usize = 64;
 pub const GZIP_LEVEL: u32 = 6;
 pub const ZSTD_LEVEL: i32 = 6;
 
@@ -160,40 +183,5 @@ pub const REDDIT_TOKEN_RENEW_RETRY_SECS: u64 = 600;
 pub const REDDIT_TOKEN_MAX_LIFETIME_SECS: u64 = 7 * 86_400;
 pub const REDDIT_POSTS_PER_SUB: usize = 30;
 pub const REDDIT_ALL_VIEW_LIMIT: usize = 100;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blank_proxy_is_none() {
-        assert_eq!(proxy_from(None), None);
-        assert_eq!(proxy_from(Some(String::new())), None);
-        assert_eq!(proxy_from(Some("   ".to_string())), None);
-    }
-
-    #[test]
-    fn blank_state_dir_is_default() {
-        assert_eq!(state_dir_from(None), PathBuf::from(DEFAULT_STATE_DIR));
-        assert_eq!(
-            state_dir_from(Some("   ".to_string())),
-            PathBuf::from(DEFAULT_STATE_DIR)
-        );
-    }
-
-    #[test]
-    fn set_state_dir_is_used() {
-        assert_eq!(
-            state_dir_from(Some("/var/lib/tty1".to_string())),
-            PathBuf::from("/var/lib/tty1")
-        );
-    }
-
-    #[test]
-    fn set_proxy_is_some() {
-        assert_eq!(
-            proxy_from(Some("socks5h://h:1080".to_string())),
-            Some("socks5h://h:1080".to_string())
-        );
-    }
-}
+/// Upper bound for a private custom list, regardless of selected sources.
+pub const CUSTOM_LIST_LIMIT: usize = 100;

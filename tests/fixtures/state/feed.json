@@ -1,0 +1,247 @@
+{
+	"version": 1,
+	"last_fetched": 1792650000,
+	"hn_pages": {
+		"top": [
+			{
+				"id": 1,
+				"title": "Top story",
+				"url": "https://example.com/top",
+				"hn_url": "https://news.ycombinator.com/item?id=1",
+				"score": 10,
+				"author": "alice",
+				"created_at": 1792649000,
+				"comment_count": 2,
+				"domain": "example.com"
+			}
+		],
+		"newest": [
+			{
+				"id": 2,
+				"title": "Newest story",
+				"url": "https://example.com/newest",
+				"hn_url": "https://news.ycombinator.com/item?id=2",
+				"score": 5,
+				"author": "bob",
+				"created_at": 1792649500,
+				"comment_count": 0,
+				"domain": "example.com"
+			}
+		],
+		"show": [
+			{
+				"id": 3,
+				"title": "Show HN: Fixture",
+				"url": "https://example.com/show",
+				"hn_url": "https://news.ycombinator.com/item?id=3",
+				"score": 7,
+				"author": "carol",
+				"created_at": 1792649600,
+				"comment_count": 1,
+				"domain": "example.com"
+			}
+		]
+	},
+	"gh_trending": [
+		{
+			"period": "daily",
+			"language": "all",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "daily-all",
+					"url": "https://github.com/fixture/daily-all",
+					"description": "Daily all fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 100,
+					"forks": 10,
+					"period_stars": "10 stars today"
+				}
+			]
+		},
+		{
+			"period": "daily",
+			"language": "Rust",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "daily-rust",
+					"url": "https://github.com/fixture/daily-rust",
+					"description": "Daily Rust fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 200,
+					"forks": 20,
+					"period_stars": "20 stars today"
+				}
+			]
+		},
+		{
+			"period": "daily",
+			"language": "Go",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "daily-go",
+					"url": "https://github.com/fixture/daily-go",
+					"description": "Daily Go fixture",
+					"language": "Go",
+					"language_color": "#00ADD8",
+					"stars": 300,
+					"forks": 30,
+					"period_stars": "30 stars today"
+				}
+			]
+		},
+		{
+			"period": "weekly",
+			"language": "all",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "weekly-all",
+					"url": "https://github.com/fixture/weekly-all",
+					"description": "Weekly all fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 400,
+					"forks": 40,
+					"period_stars": "40 stars this week"
+				}
+			]
+		},
+		{
+			"period": "weekly",
+			"language": "Rust",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "weekly-rust",
+					"url": "https://github.com/fixture/weekly-rust",
+					"description": "Weekly Rust fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 500,
+					"forks": 50,
+					"period_stars": "50 stars this week"
+				}
+			]
+		},
+		{
+			"period": "weekly",
+			"language": "Go",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "weekly-go",
+					"url": "https://github.com/fixture/weekly-go",
+					"description": "Weekly Go fixture",
+					"language": "Go",
+					"language_color": "#00ADD8",
+					"stars": 600,
+					"forks": 60,
+					"period_stars": "60 stars this week"
+				}
+			]
+		},
+		{
+			"period": "monthly",
+			"language": "all",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "monthly-all",
+					"url": "https://github.com/fixture/monthly-all",
+					"description": "Monthly all fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 700,
+					"forks": 70,
+					"period_stars": "70 stars this month"
+				}
+			]
+		},
+		{
+			"period": "monthly",
+			"language": "Rust",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "monthly-rust",
+					"url": "https://github.com/fixture/monthly-rust",
+					"description": "Monthly Rust fixture",
+					"language": "Rust",
+					"language_color": "#dea584",
+					"stars": 800,
+					"forks": 80,
+					"period_stars": "80 stars this month"
+				}
+			]
+		},
+		{
+			"period": "monthly",
+			"language": "Go",
+			"repos": [
+				{
+					"author": "fixture",
+					"name": "monthly-go",
+					"url": "https://github.com/fixture/monthly-go",
+					"description": "Monthly Go fixture",
+					"language": "Go",
+					"language_color": "#00ADD8",
+					"stars": 900,
+					"forks": 90,
+					"period_stars": "90 stars this month"
+				}
+			]
+		}
+	],
+	"reddit_feed": {
+		"all": [
+			{
+				"title": "All fixture post",
+				"url": "https://reddit.com/r/all/comments/1",
+				"permalink": "https://reddit.com/r/all/comments/1",
+				"subreddit": "all",
+				"score": 10,
+				"author": "alice",
+				"created_at": 1792649000.0,
+				"comment_count": 2,
+				"domain": "self.all",
+				"is_self": true,
+				"stickied": false
+			}
+		],
+		"dotnet": [
+			{
+				"title": "Dotnet fixture post",
+				"url": "https://reddit.com/r/dotnet/comments/1",
+				"permalink": "https://reddit.com/r/dotnet/comments/1",
+				"subreddit": "dotnet",
+				"score": 20,
+				"author": "bob",
+				"created_at": 1792649500.0,
+				"comment_count": 1,
+				"domain": "self.dotnet",
+				"is_self": true,
+				"stickied": false
+			}
+		],
+		"docker": [
+			{
+				"title": "Docker fixture post",
+				"url": "https://reddit.com/r/docker/comments/1",
+				"permalink": "https://reddit.com/r/docker/comments/1",
+				"subreddit": "docker",
+				"score": 30,
+				"author": "carol",
+				"created_at": 1792649600.0,
+				"comment_count": 0,
+				"domain": "self.docker",
+				"is_self": true,
+				"stickied": false
+			}
+		]
+	}
+}
