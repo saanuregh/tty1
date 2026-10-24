@@ -66,22 +66,30 @@
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
+	/* Contains the absolutely positioned GitHub period radios; without it they
+	   escape the mobile swipe scroller and widen the layout viewport. */
+	position: relative;
+	--panel-accent: var(--accent-hn);
+	--active-bar: 1px;
+}
+
+.gh-panel {
+	--panel-accent: var(--accent-gh);
+}
+
+.reddit-panel {
+	--panel-accent: var(--accent-reddit);
 }
 
 .panel.panel-hidden {
 	display: none !important;
 }
 
-.hn-panel.active-panel {
-	border-top: 2px solid var(--accent-hn);
-}
-
-.gh-panel.active-panel {
-	border-top: 2px solid var(--accent-gh);
-}
-
-.reddit-panel.active-panel {
-	border-top: 2px solid var(--accent-reddit);
+/* A thicker border would push the active panel's content down; an inset
+   shadow draws the same bar without changing layout. */
+.panel.active-panel {
+	border-top-color: var(--panel-accent);
+	box-shadow: inset 0 var(--active-bar) 0 var(--panel-accent);
 }
 
 /* Panel header */
@@ -241,14 +249,36 @@ a.source-name:hover {
 	display: block;
 }
 
-.stories[data-loading]::after,
-.repos[data-loading]::after,
-.reddit-posts[data-loading]::after {
-	content: "loading…";
+/* Skeleton rows for a list with nothing to show yet. A loaded list keeps its
+   items, and a failed one its error, while a refresh or retry runs. */
+.stories[data-loading]:not([data-loaded], :has(.fragment-error))::after,
+.repos[data-loading]:not([data-loaded], :has(.fragment-error))::after,
+.reddit-posts[data-loading]:not([data-loaded], :has(.fragment-error))::after {
+	content: "";
 	display: block;
-	padding: 16px;
-	color: var(--text-meta);
-	font-size: 12px;
+	height: 100%;
+	min-height: 264px;
+	background-image:
+		linear-gradient(
+			transparent 14px,
+			var(--border-panel) 14px 26px,
+			transparent 26px
+		),
+		linear-gradient(
+			transparent 36px,
+			var(--border-panel) 36px 44px,
+			transparent 44px
+		),
+		linear-gradient(transparent 65px, var(--border-item) 65px);
+	background-size:
+		60% 66px,
+		35% 66px,
+		100% 66px;
+	background-position:
+		16px 0,
+		16px 0,
+		0 0;
+	background-repeat: repeat-y;
 }
 
 /* Item lists */
@@ -737,14 +767,21 @@ a.source-name:hover {
 		scroll-snap-align: start;
 		border-radius: 0;
 		border: none;
+		--active-bar: 2px;
 	}
 	.last-updated {
 		display: flex;
 		padding: 6px 12px;
 	}
-	.last-updated-time,
+	.last-updated-label,
 	.last-updated .sep {
 		display: none;
+	}
+	/* Room for the last item to scroll clear of the fixed dots and footer. */
+	.stories,
+	.reddit-posts,
+	.tab-content.active {
+		padding-bottom: 72px;
 	}
 	.swipe-dots {
 		display: flex;

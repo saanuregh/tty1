@@ -26,6 +26,7 @@
 	--accent-hn: #ff6600;
 	--accent-gh: #58a6ff;
 	--accent-reddit: #ff4500;
+	--offline: #ff5c5c;
 	--scrollbar-thumb: #2a2a2a;
 	--scrollbar-hover: #3a3a3a;
 	--font-mono:
@@ -51,6 +52,7 @@ html[data-theme="light"] {
 	--accent-hn: #a83a00;
 	--accent-gh: #0969da;
 	--accent-reddit: #b33a00;
+	--offline: #c62828;
 	--sep-color: #bbb;
 	--loading-sep: #ddd;
 	--scrollbar-thumb: #ccc;
@@ -77,6 +79,7 @@ body {
 	line-height: 1.6;
 	-webkit-font-smoothing: antialiased;
 	height: 100vh;
+	height: 100dvh;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
@@ -101,25 +104,44 @@ body {
 	top: 8px;
 }
 
-.offline-banner {
+/* Desktop: in the page margin above the panels. */
+.offline-indicator {
 	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
+	top: 4px;
+	right: 24px;
 	z-index: 100;
-	background: var(--border-panel);
-	color: var(--text-meta);
-	text-align: center;
-	font-size: 11px;
-	padding: 4px 0;
-	letter-spacing: 0.05em;
-	border-bottom: 1px solid var(--border-input);
-	transform: translateY(-100%);
-	transition: transform 0.3s ease;
+	width: 16px;
+	height: 16px;
+	color: var(--offline);
+	transition: opacity 0.3s ease;
 }
 
-.offline-banner:not(.is-hidden) {
-	transform: translateY(0);
+.offline-indicator svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
+.offline-indicator.is-hidden {
+	opacity: 0;
+	visibility: hidden;
+}
+
+/* Mobile: at the left of the swipe-dot row, the only free fixed spot. */
+@media (max-width: 899px) {
+	.offline-indicator {
+		top: auto;
+		right: auto;
+		bottom: 26px;
+		left: 16px;
+		/* A ring rather than padding keeps the icon box small while giving it a
+		   backdrop over list text. */
+		border-radius: 50%;
+		background: var(--bg-panel);
+		box-shadow:
+			0 0 0 6px var(--bg-panel),
+			0 0 0 7px var(--border-panel);
+	}
 }
 
 body.is-offline {
@@ -127,12 +149,8 @@ body.is-offline {
 	transition: opacity 0.3s ease;
 }
 
-body.is-offline .dashboard {
-	padding-top: 40px;
-}
-
 @media (prefers-reduced-motion: reduce) {
-	.offline-banner,
+	.offline-indicator,
 	body.is-offline {
 		transition: none;
 	}

@@ -23,6 +23,9 @@ export async function pollVersion(): Promise<void> {
 	} | null;
 	if (!data || typeof data.last_fetched !== "number") return;
 	if (data.last_fetched > dataVersion()) refreshData(data.last_fetched);
+	// Re-ensures any visible list left behind by a failed refresh; a no-op for
+	// lists already at the current version.
+	else applyFilters();
 }
 
 function refreshData(version: number): void {
@@ -40,7 +43,7 @@ function refreshData(version: number): void {
 	}
 }
 
-const banner = $(".offline-banner");
+const banner = $(".offline-indicator");
 
 function setOffline(offline: boolean): void {
 	if (!banner) return;

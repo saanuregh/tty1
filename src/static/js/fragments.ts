@@ -60,6 +60,28 @@ function fragmentUrl(list: HTMLElement, version: number): string | null {
 
 const listFetches = new WeakMap<HTMLElement, Promise<boolean>>();
 
+// Retries a failed list within seconds instead of waiting for the next
+// version poll.
+const FAILURE_RETRY_MS = [2000, 5000, 15000] as const;
+const failureRetryCounts = new WeakMap<HTMLElement, number>();
+
+// offsetParent is null for a list hidden by its own display or by an inactive
+// GitHub period tab.
+function isShown(list: HTMLElement): boolean {
+	return list.isConnected && list.offsetParent !== null;
+}
+
+function scheduleFailureRetry(list: HTMLElement): void {
+	if (!isShown(list)) return;
+	const count = failureRetryCounts.get(list) ?? 0;
+	const delay = FAILURE_RETRY_MS[count];
+	if (delay === undefined) return;
+	failureRetryCounts.set(list, count + 1);
+	setTimeout(() => {
+		if (isShown(list)) ensureList(list);
+	}, delay);
+}
+
 function markFailed(list: HTMLElement | null): void {
 	if (!list || list.dataset.loaded === "true") return;
 	if (list.querySelector(".fragment-error")) return;
@@ -92,7 +114,9 @@ export function ensureList(
 
 	const request = (async () => {
 		list.dataset.loading = "1";
+		list.setAttribute("aria-busy", "true");
 		let retryIn = -1;
+		let failed = false;
 		try {
 			const response = await fetch(url).catch(() => null);
 			const serverVersion = response
@@ -101,6 +125,7 @@ export function ensureList(
 				: 0;
 			if (!response?.ok) {
 				markFailed(list);
+				failed = true;
 				adoptServerVersion(serverVersion);
 				return false;
 			}
@@ -127,17 +152,22 @@ export function ensureList(
 			const fresh = template.content.firstElementChild as HTMLElement | null;
 			if (!fresh) {
 				markFailed(list);
+				failed = true;
 				return false;
 			}
 			fresh.style.display = list.style.display;
 			if (fresh.dataset.version === undefined)
 				fresh.dataset.version = String(version);
+			const scrollTop = list.dataset.loaded === "true" ? list.scrollTop : 0;
 			list.replaceWith(fresh);
+			if (scrollTop) fresh.scrollTop = scrollTop;
 			refreshTimes(fresh);
 			return true;
 		} finally {
 			delete list.dataset.loading;
+			list.removeAttribute("aria-busy");
 			listFetches.delete(list);
+			if (failed) scheduleFailureRetry(list);
 			if (retryIn >= 0 && list.isConnected)
 				setTimeout(
 					() => ensureList(list, retryIn ? retries + 1 : retries),

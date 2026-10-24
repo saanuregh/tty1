@@ -6,7 +6,12 @@ import {
 	syncViewCookie,
 	update,
 } from "./common.ts";
-import { applyFilters, prefetchLanguages } from "./filters.ts";
+import {
+	applyFilters,
+	prefetchLanguages,
+	prefetchSubreddits,
+	prefetchWhenIdle,
+} from "./filters.ts";
 import { dataVersion, setVersionListener, tellSwVersion } from "./fragments.ts";
 import { initKeyboard, resetFocus } from "./keyboard.ts";
 import { initPolling, pollVersion } from "./polling.ts";
@@ -53,6 +58,11 @@ if (languageSelect) {
 	languageSelect.addEventListener("focus", prefetchLanguages);
 	languageSelect.addEventListener("pointerdown", prefetchLanguages);
 }
+const subredditSelect = $<HTMLSelectElement>(".subreddit-select");
+if (subredditSelect) {
+	subredditSelect.addEventListener("focus", prefetchSubreddits);
+	subredditSelect.addEventListener("pointerdown", prefetchSubreddits);
+}
 
 // A stale shell served by the service worker should not wait a full poll
 // interval before comparing versions.
@@ -60,3 +70,4 @@ void pollVersion();
 tellSwVersion(dataVersion());
 initPolling();
 initSwipe();
+prefetchWhenIdle();

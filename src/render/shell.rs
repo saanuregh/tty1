@@ -29,7 +29,9 @@ pub fn page_shell(page_css: &str, content: Markup) -> Markup {
             }
             body {
                 a.skip-link href="#main-content" { "Skip to content" }
-                aside.offline-banner.is-hidden aria-label="Connection status" aria-hidden="true" { "offline \u{00b7} cached content" }
+                aside.offline-indicator.is-hidden aria-label="offline" aria-hidden="true" title="offline \u{00b7} showing cached content" {
+                    (PreEscaped(include_str!("../static/icons/offline.svg")))
+                }
                 (content)
                 script { (PreEscaped(SW_REGISTER)) }
             }

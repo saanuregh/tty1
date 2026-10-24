@@ -194,8 +194,10 @@ pub fn render_page(
         }
         @let fetched_ts = last_fetched.timestamp() as u64;
         footer.last-updated aria-live="polite" {
-            "updated "
-            time.last-updated-time data-ts=(fetched_ts) { (format_time_ago(fetched_ts)) }
+            span.last-updated-label {
+                "updated "
+                time.last-updated-time data-ts=(fetched_ts) { (format_time_ago(fetched_ts)) }
+            }
             span.sep { (SEP) }
             a.settings-link href="/settings" { "settings" }
         }

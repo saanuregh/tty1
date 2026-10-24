@@ -306,6 +306,264 @@ try {
 		"true",
 	);
 
+	// Mobile layout: nothing widens the layout viewport, every panel header
+	// sits at the same height, and the fixed footer and dots stay on screen
+	// without covering the end of a list.
+	const mobileContext = await browser.newContext({
+		viewport: { width: 390, height: 844 },
+		isMobile: true,
+		hasTouch: true,
+	});
+	const mobilePage = await mobileContext.newPage();
+	await mobilePage.goto(`${base}/?smoke=mobile-layout`, {
+		waitUntil: "networkidle",
+	});
+	const mobileLayout = await mobilePage.evaluate(() => {
+		const footer = document.querySelector(".last-updated");
+		const footerRect = footer.getBoundingClientRect();
+		const visibleList = [
+			...document.querySelectorAll(".hn-panel ol.stories"),
+		].find((list) => list.style.display !== "none");
+		return {
+			width: window.innerWidth,
+			headerTops: [...document.querySelectorAll(".panel-header")].map(
+				(header) => header.getBoundingClientRect().top,
+			),
+			footerText: footer.innerText.trim(),
+			footerInside: footerRect.right <= window.innerWidth,
+			listPadding: Number.parseFloat(
+				getComputedStyle(visibleList).paddingBottom,
+			),
+		};
+	});
+	assert.equal(mobileLayout.width, 390, "mobile layout viewport width");
+	assert.equal(
+		new Set(mobileLayout.headerTops).size,
+		1,
+		`panel headers misaligned: ${mobileLayout.headerTops}`,
+	);
+	assert.equal(mobileLayout.footerText, "settings");
+	assert.ok(mobileLayout.footerInside, "footer should be inside the viewport");
+	assert.ok(
+		mobileLayout.listPadding >= 60,
+		`list bottom padding ${mobileLayout.listPadding}`,
+	);
+	await mobileContext.close();
+
+	// Going offline shows a small icon, on desktop in the margin above the
+	// panels and on mobile beside the swipe dots, without moving or covering
+	// anything.
+	for (const [label, options] of [
+		["desktop", { viewport: { width: 1280, height: 900 } }],
+		[
+			"mobile",
+			{ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true },
+		],
+	]) {
+		const offlineContext = await browser.newContext(options);
+		const offlinePage = await offlineContext.newPage();
+		await offlinePage.goto(`${base}/?smoke=offline`, {
+			waitUntil: "networkidle",
+		});
+		const dashboardRect = () =>
+			offlinePage
+				.locator(".dashboard")
+				.evaluate((element) => JSON.stringify(element.getBoundingClientRect()));
+		const onlineRect = await dashboardRect();
+		await offlineContext.setOffline(true);
+		await offlinePage.waitForSelector(".offline-indicator:not(.is-hidden)");
+		await offlinePage.waitForTimeout(400);
+		assert.equal(
+			await dashboardRect(),
+			onlineRect,
+			`${label}: offline moved the dashboard`,
+		);
+		const placement = await offlinePage
+			.locator(".offline-indicator")
+			.evaluate((indicator, isMobile) => {
+				const rect = indicator.getBoundingClientRect();
+				const overlaps = (selector) =>
+					[...document.querySelectorAll(selector)].some((element) => {
+						const other = element.getBoundingClientRect();
+						return (
+							other.width > 0 &&
+							rect.left < other.right &&
+							rect.right > other.left &&
+							rect.top < other.bottom &&
+							rect.bottom > other.top
+						);
+					});
+				return {
+					onScreen:
+						rect.top >= 0 &&
+						rect.left >= 0 &&
+						rect.bottom <= window.innerHeight &&
+						rect.right <= window.innerWidth,
+					small: rect.width <= 20 && rect.height <= 20,
+					clear: isMobile
+						? !overlaps(".swipe-dot:not(.dot-hidden), .last-updated")
+						: !overlaps(".panel, .last-updated"),
+					label: indicator.getAttribute("aria-label"),
+				};
+			}, label === "mobile");
+		assert.deepEqual(
+			placement,
+			{ onScreen: true, small: true, clear: true, label: "offline" },
+			`${label}: offline indicator placement`,
+		);
+		await offlineContext.close();
+	}
+
+	// A list that is still loading shows skeleton rows that fill the panel;
+	// fragments are delayed and the service worker is blocked so the routed
+	// delay applies.
+	const slowContext = await browser.newContext({
+		viewport: { width: 1280, height: 900 },
+		serviceWorkers: "block",
+	});
+	const slowPage = await slowContext.newPage();
+	let releaseShow;
+	const showReleased = new Promise((resolve) => {
+		releaseShow = resolve;
+	});
+	await slowPage.route("**/f/hn/show*", async (route) => {
+		await showReleased;
+		await route.continue();
+	});
+	// The idle prefetch may already be waiting on this request; selecting the
+	// page then shows that pending load.
+	await slowPage.goto(`${base}/?smoke=skeleton`, { waitUntil: "load" });
+	await slowPage.selectOption(".hn-select", "show");
+	const loadingList = slowPage.locator('.stories[data-for-page="show"]');
+	await loadingList.and(slowPage.locator("[data-loading]")).waitFor();
+	assert.equal(await loadingList.getAttribute("aria-busy"), "true");
+	assert.ok(
+		await loadingList.evaluate(
+			(list) =>
+				Number.parseFloat(getComputedStyle(list, "::after").height) > 200 &&
+				getComputedStyle(list, "::after").content === '""',
+		),
+		"loading list should show skeleton rows",
+	);
+	releaseShow();
+	await slowPage.waitForSelector(
+		'.stories[data-for-page="show"][data-loaded="true"] .story',
+	);
+	assert.equal(
+		await slowPage
+			.locator('.stories[data-for-page="show"]')
+			.getAttribute("aria-busy"),
+		null,
+	);
+	await slowContext.close();
+
+	// Background refresh: a refreshed list keeps its scroll position, a failed
+	// refresh is retried, and a poll catches up a list left behind.
+	const refreshContext = await browser.newContext({
+		viewport: { width: 1280, height: 600 },
+		serviceWorkers: "block",
+	});
+	const refreshPage = await refreshContext.newPage();
+	let servedVersion = 0;
+	let failNextTop = false;
+	await refreshPage.route("**/api/version", (route) =>
+		route.fulfill({
+			contentType: "application/json",
+			headers: { "cache-control": "no-store" },
+			body: JSON.stringify({ etag: "smoke", last_fetched: servedVersion }),
+		}),
+	);
+	await refreshPage.route("**/f/hn/top*", (route) => {
+		if (failNextTop) {
+			failNextTop = false;
+			return route.abort();
+		}
+		const version = new URL(route.request().url()).searchParams.get("v");
+		const items = Array.from(
+			{ length: 30 },
+			(_, index) =>
+				`<li class="story"><span class="story-title"><a href="#">item ${index} v${version}</a></span><div class="story-meta">meta</div></li>`,
+		).join("");
+		return route.fulfill({
+			contentType: "text/html",
+			headers: { "x-data-version": String(servedVersion) },
+			body: `<ol class="stories" data-for-page="top" data-loaded="true" data-version="${version}">${items}</ol>`,
+		});
+	});
+	await refreshPage.goto(`${base}/?smoke=refresh`, {
+		waitUntil: "networkidle",
+	});
+	const baseVersion = Number(
+		await refreshPage.locator(".last-updated-time").getAttribute("data-ts"),
+	);
+	servedVersion = baseVersion;
+	const topList = '.stories[data-for-page="top"]';
+	// pollVersion is throttled to one request per 5 s.
+	const poll = async () => {
+		await refreshPage.waitForTimeout(5100);
+		await refreshPage.evaluate(() =>
+			document.dispatchEvent(new Event("visibilitychange")),
+		);
+	};
+
+	servedVersion = baseVersion + 1;
+	await poll();
+	await refreshPage.waitForSelector(
+		`${topList}[data-version="${baseVersion + 1}"]`,
+	);
+	await refreshPage.locator(topList).evaluate((list) => {
+		list.scrollTop = 400;
+	});
+
+	servedVersion = baseVersion + 2;
+	failNextTop = true;
+	await poll();
+	await refreshPage.waitForSelector(
+		`${topList}[data-version="${baseVersion + 2}"]`,
+		{ timeout: 4000 },
+	);
+	assert.equal(
+		await refreshPage.locator(topList).evaluate((list) => list.scrollTop),
+		400,
+		"refresh should keep the list scroll position",
+	);
+	assert.equal(failNextTop, false, "the first refresh should have failed");
+
+	await refreshPage.locator(topList).evaluate((list) => {
+		list.dataset.version = "1";
+	});
+	await poll();
+	await refreshPage.waitForSelector(
+		`${topList}[data-version="${baseVersion + 2}"]`,
+		{ timeout: 3000 },
+	);
+	await refreshContext.close();
+
+	// Idle prefetch loads the other HN pages; focusing the subreddit select
+	// loads the subreddits.
+	const prefetchContext = await browser.newContext({
+		viewport: { width: 1280, height: 900 },
+	});
+	const prefetchPage = await prefetchContext.newPage();
+	await prefetchPage.goto(`${base}/?smoke=prefetch`, {
+		waitUntil: "networkidle",
+	});
+	for (const selector of [
+		'.stories[data-for-page="newest"][data-loaded="true"]',
+		'.stories[data-for-page="show"][data-loaded="true"]',
+	])
+		await prefetchPage.waitForSelector(selector, {
+			state: "attached",
+			timeout: 5000,
+		});
+	await prefetchPage.focus(".subreddit-select");
+	for (const sub of ["dotnet", "docker"])
+		await prefetchPage.waitForSelector(
+			`.reddit-posts[data-for-sub="${sub}"][data-loaded="true"]`,
+			{ state: "attached", timeout: 5000 },
+		);
+	await prefetchContext.close();
+
 	const unexpected = errors.filter(
 		(error) => !error.includes("ERR_INTERNET_DISCONNECTED"),
 	);

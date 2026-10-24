@@ -1,4 +1,4 @@
-import { $, $$ } from "./common.ts";
+import { $, $$, attrValue } from "./common.ts";
 import { ensureList } from "./fragments.ts";
 
 export function panelVisible(list: Element): boolean {
@@ -25,6 +25,31 @@ export function prefetchLanguages(): void {
 		);
 		if (list) ensureList(list);
 	}
+}
+
+export function prefetchSubreddits(): void {
+	const subredditSelect = $<HTMLSelectElement>(".subreddit-select");
+	if (!subredditSelect) return;
+	for (const option of subredditSelect.options) {
+		if (option.value === "all" || option.style.display === "none") continue;
+		const list = $<HTMLElement>(
+			`.reddit-posts[data-for-sub="${attrValue(option.value)}"]`,
+		);
+		if (list && panelVisible(list)) ensureList(list);
+	}
+}
+
+// Loads the other HN pages so a page switch is served from the DOM instead of
+// showing skeleton rows. GitHub needs no prefetch: applyFilters already loads
+// the current language in every period tab.
+export function prefetchWhenIdle(): void {
+	const run = () => {
+		for (const list of $$(".hn-panel ol.stories")) {
+			if (list.style.display === "none" && panelVisible(list)) ensureList(list);
+		}
+	};
+	if ("requestIdleCallback" in window) requestIdleCallback(run);
+	else setTimeout(run, 1000);
 }
 
 export function applyFilters(): void {
