@@ -15,7 +15,7 @@ RUN touch src/main.rs && cargo build --release --locked --features vendored-tls 
     && mkdir -p /state
 
 # Stage 2: Runtime
-FROM gcr.io/distroless/cc-debian13@sha256:b2e43dc72acf58a146ed6feaf350806ae3bf4243eb5c68062d06bc13228ca2bd
+FROM gcr.io/distroless/cc-debian13@sha256:d74d144baa124dd9defd01d71872bb56c49d4441dba6153ccf790364f97e64b1
 COPY --from=busybox:1.38-musl@sha256:ea2b9914a16a4ac1981994af97b318f7c7d4db76b580c56177f08bf76f4a0be8 /bin/wget /usr/bin/wget
 COPY --chown=65532:65532 --from=builder /state /state
 COPY --from=builder /app/target/release/tty1 /tty1
